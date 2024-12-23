@@ -152,14 +152,12 @@ pub const Instruction = union(enum) {
         rs2: u5,
         rd: u5,
     },
-    // AMO instructions additionally have an aq and rl field
+    // AMO instructions
     AMO: struct {
         opcode: Opcode.AMO,
         rs1: u5,
         rs2: u5,
         rd: u5,
-        aq: bool,
-        rl: bool,
     },
     // I-type instructions have a source and destination register operand
     // and a 12-bit signed immediate value
