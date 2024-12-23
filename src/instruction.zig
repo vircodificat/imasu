@@ -1,5 +1,11 @@
 // RISC-V Instruction opcodes and operands
 
+const expect = @import("std").testing.expect;
+
+fn num_variants(T: anytype) usize {
+    return @typeInfo(T).@"enum".fields.len;
+}
+
 pub const Opcode = struct {
     // R-type instruction opcodes
     pub const R = enum {
@@ -143,93 +149,98 @@ pub const Opcode = struct {
     };
 };
 
-pub const Instruction = union(enum) {
+pub const Operands = struct {
     // R-type instructions have 2 source register operands
     // and a register destination operand
-    R: struct {
+    pub const R = struct {
         opcode: Opcode.R,
         rs1: u5,
         rs2: u5,
         rd: u5,
-    },
-    // AMO instructions
-    AMO: struct {
+    };
+    // AMO instructions use the same R-type encoding
+    pub const AMO = struct {
         opcode: Opcode.AMO,
         rs1: u5,
         rs2: u5,
         rd: u5,
-    },
+    };
     // I-type instructions have a source and destination register operand
     // and a 12-bit immediate value that is interpreted as a signed value
-    I: struct {
+    pub const I = struct {
         opcode: Opcode.I,
         rs1: u5,
         rd: u5,
         imm: u12,
-    },
-    CSR: struct {
+    };
+    // CSR instructions use the same I-type encoding
+    pub const CSR = struct {
         opcode: Opcode.CSR,
         rs1: u5,
         rd: u5,
         csrno: u12,
-    },
+    };
     // S-type instructions have two source register operands
     // and a 12-bit immediate value that is interpreted as a signed value
-    S: struct {
+    pub const S = struct {
         opcode: Opcode.S,
         rs1: u5,
         rs2: u5,
         imm: u12,
-    },
+    };
     // B-type instructions have two source register operands
     // and a 12-bit immediate value that is interpreted as a 13-bit signed even value
-    B: struct {
+    pub const B = struct {
         opcode: Opcode.B,
         rs1: u5,
         rs2: u5,
         imm: u12,
-    },
+    };
     // U-type instructions have a destination register operand
     // and a 20-bit immediate value that is interpreted as a 32-bit signed value
     // with the 12 least significant bits set to 0
-    U: struct {
+    pub const U = struct {
         opcode: Opcode.U,
         rd: u5,
         imm: u20,
-    },
+    };
     // J-type instructions have a destination register operand
     // and a 20-bit immediate value that is interpreted as a 21-bit signed even value
-    J: struct {
+    pub const J = struct {
         opcode: Opcode.J,
         rd: u5,
         imm: u20,
-    },
-    // Privileged and Miscellaneous instructions
+    };
+};
+
+pub const Instruction = union(enum) {
+    R: Operands.R,
+    AMO: Operands.AMO,
+    I: Operands.I,
+    CSR: Operands.CSR,
+    S: Operands.S,
+    B: Operands.B,
+    U: Operands.U,
+    J: Operands.J,
     Special: Opcode.Special,
 };
 
-const testing = @import("std").testing;
-
-fn num_variants(T: anytype) usize {
-    return @typeInfo(T).@"enum".fields.len;
-}
-
 test "enumerated all instructions" {
     // 10 RV32I + 5 RV64I only + 8 RV32M + 5 RV64M only
-    try testing.expect(num_variants(Opcode.R) == 10 + 5 + 8 + 5);
+    try expect(num_variants(Opcode.R) == 10 + 5 + 8 + 5);
     // lr sc + 9 operations for word and double-word size
-    try testing.expect(num_variants(Opcode.AMO) == 2 * 11);
+    try expect(num_variants(Opcode.AMO) == 2 * 11);
     // 15 RV32I + 6 RV64 only
-    try testing.expect(num_variants(Opcode.I) == 15 + 6);
+    try expect(num_variants(Opcode.I) == 15 + 6);
     // write, set bits, clear bits, with register and immediate
-    try testing.expect(num_variants(Opcode.CSR) == 6);
+    try expect(num_variants(Opcode.CSR) == 6);
     // stores for powers of 2 bytes up to 8
-    try testing.expect(num_variants(Opcode.S) == 3 + 1);
+    try expect(num_variants(Opcode.S) == 3 + 1);
     // 6 branch predicates
-    try testing.expect(num_variants(Opcode.B) == 6);
+    try expect(num_variants(Opcode.B) == 6);
     // lui and auipc
-    try testing.expect(num_variants(Opcode.U) == 2);
+    try expect(num_variants(Opcode.U) == 2);
     // jal only
-    try testing.expect(num_variants(Opcode.J) == 1);
-    try testing.expect(num_variants(Opcode.Special) == 8);
+    try expect(num_variants(Opcode.J) == 1);
+    try expect(num_variants(Opcode.Special) == 8);
 }
