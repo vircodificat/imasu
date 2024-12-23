@@ -36,7 +36,7 @@ pub const Opcode = struct {
     };
 
     // Atomic memory operation instruction opcodes
-    // These use the R-type encoding, with two 1-bit aq and rl fields
+    // These use the R-type encoding, with two 1-bit aq and rl fields that we ignore
     pub const AMO = enum {
         // RV32/64 A
         @"lr.w", // load-reserved word
@@ -160,12 +160,12 @@ pub const Instruction = union(enum) {
         rd: u5,
     },
     // I-type instructions have a source and destination register operand
-    // and a 12-bit signed immediate value
+    // and a 12-bit immediate value that is interpreted as a signed value
     I: struct {
         opcode: Opcode.I,
         rs1: u5,
         rd: u5,
-        imm: i12,
+        imm: u12,
     },
     CSR: struct {
         opcode: Opcode.CSR,
@@ -174,34 +174,35 @@ pub const Instruction = union(enum) {
         csrno: u12,
     },
     // S-type instructions have two source register operands
-    // and a 12-bit signed immediate value
+    // and a 12-bit immediate value that is interpreted as a signed value
     S: struct {
         opcode: Opcode.S,
         rs1: u5,
         rs2: u5,
-        imm: i12,
+        imm: u12,
     },
     // B-type instructions have two source register operands
-    // and a 13-bit signed even immediate value (least significant bit is 0)
+    // and a 12-bit immediate value that is interpreted as a 13-bit signed even value
     B: struct {
         opcode: Opcode.B,
         rs1: u5,
         rs2: u5,
-        imm: i13,
+        imm: u12,
     },
     // U-type instructions have a destination register operand
-    // and a 32-bit signed immediate value with the least significant 12 bits all 0s
+    // and a 20-bit immediate value that is interpreted as a 32-bit signed value
+    // with the 12 least significant bits set to 0
     U: struct {
         opcode: Opcode.U,
         rd: u5,
-        imm: i32,
+        imm: u20,
     },
     // J-type instructions have a destination register operand
-    // and a 21-bit signed even immediate value (least significatn bit is 0)
+    // and a 20-bit immediate value that is interpreted as a 21-bit signed even value
     J: struct {
         opcode: Opcode.J,
         rd: u5,
-        imm: i21,
+        imm: u20,
     },
     // Privileged and Miscellaneous instructions
     Special: Opcode.Special,
