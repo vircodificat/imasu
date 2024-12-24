@@ -46,6 +46,7 @@ const csr = struct {
     // zig fmt: off
     const mstatus    = 0x300;
     const misa       = 0x301;
+    const mie        = 0x304;
     const mtvec      = 0x305;
     const mscratch   = 0x340;
     const mepc       = 0x341;
@@ -99,6 +100,7 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) !xlen {
     return switch (csrno) {
         csr.mstatus => csrs.mstatus_read(),
         csr.misa => misa_value,
+        csr.mie => 0, // TODO
         csr.mtvec => csrs.mtvec.base
             | @intFromBool(csrs.mtvec.vectored),
         csr.mscratch => csrs.mscratch,
