@@ -45,6 +45,7 @@ inline fn mstatus_write(csrs: CSRs, v: xlen) void {
 const csrnos = enum(u12) {
     // zig fmt: off
     mstatus  = 0x300,
+    misa     = 0x301,
     mtvec    = 0x305,
     mscratch = 0x340,
     mepc     = 0x341,
@@ -52,6 +53,12 @@ const csrnos = enum(u12) {
     mtval    = 0x343,
     // zig fmt: on
 };
+
+// zig fmt: off
+const misa_value: xlen = @as(xlen, 0b10) << 62 // xlen=64
+    | 0b10000000000000000100000000;
+// isa: zyxwvutsrqponmlkjihgfedcba
+// // zig fmt: on
 
 pub fn init() CSRs {
     return CSRs{
@@ -78,6 +85,7 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) !xlen {
     // permission check passed
     return switch (csrno) {
         csrnos.mstatus => csrs.mstatus_read(),
+        csrnos.misa => misa_value,
         csrnos.mtvec => csrs.mtvec.base | @intFromBool(csrs.mtvec.vectored),
         csrnos.mscratch => csrs.mscratch,
         csrnos.mepc => csrs.mepc,
@@ -96,6 +104,7 @@ pub fn write(csrs: CSRs, csrno: u12, v: xlen, priv: Privilege) !void {
     // permission check passed
     switch (csrno) {
         csrnos.mstatus => csrs.mstatus_write(v),
+        csrnos.misa => {},
         csrnos.mtvec => csrs.mtvec = .{
             .base = v & ~@as(xlen, 0b11),
             .vectored = (v & 0b11) == 0b01,
