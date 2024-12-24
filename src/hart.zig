@@ -99,8 +99,15 @@ fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
 }
 
 fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
-    _ = hart;
     switch (instruction) {
+        .J => |inst| { // TODO: executable permission check for jump target
+            const imm = sext_to_xlen(inst.imm) << 1;
+            const jump_target = hart.pc +% imm;
+            if (inst.rd != 0) hart.x[inst.rd] = hart.pc +% 4;
+            if (jump_target % 4 != 0) return Exception.InstMisaligned;
+            hart.pc = jump_target;
+            return;
+        },
         else => return Exception.IllegalInstruction,
     }
 }
