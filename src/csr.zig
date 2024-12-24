@@ -44,13 +44,18 @@ inline fn mstatus_write(csrs: CSRs, v: xlen) void {
 // csrno[11:10] = 11 indicates the CSR is read-only
 const csrnos = enum(u12) {
     // zig fmt: off
-    mstatus  = 0x300,
-    misa     = 0x301,
-    mtvec    = 0x305,
-    mscratch = 0x340,
-    mepc     = 0x341,
-    mcause   = 0x342,
-    mtval    = 0x343,
+    mstatus    = 0x300,
+    misa       = 0x301,
+    mtvec      = 0x305,
+    mscratch   = 0x340,
+    mepc       = 0x341,
+    mcause     = 0x342,
+    mtval      = 0x343,
+    mvendorid  = 0xf11,
+    marchid    = 0xf12,
+    mimpid     = 0xf13,
+    mhartid    = 0xf14,
+    mconfigptr = 0xf15,
     // zig fmt: on
 };
 
@@ -86,11 +91,17 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) !xlen {
     return switch (csrno) {
         csrnos.mstatus => csrs.mstatus_read(),
         csrnos.misa => misa_value,
-        csrnos.mtvec => csrs.mtvec.base | @intFromBool(csrs.mtvec.vectored),
+        csrnos.mtvec => csrs.mtvec.base
+            | @intFromBool(csrs.mtvec.vectored),
         csrnos.mscratch => csrs.mscratch,
         csrnos.mepc => csrs.mepc,
         csrnos.mcause => csrs.mcause,
         csrnos.mtval => csrs.mtval,
+        csrnos.mvendorid => 0,
+        csrnos.marchid => 0,
+        csrnos.mimpid => 0,
+        csrnos.mhartid => 0,
+        csrnos.mconfigptr => 0,
         else => Exception.IllegalInstruction,
     };
 }
