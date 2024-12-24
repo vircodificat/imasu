@@ -152,8 +152,8 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
                 .lbu => zext_to_xlen(try hart.mem.load_byte(x_rs1 +% imm)),
                 .lhu => zext_to_xlen(try hart.mem.load_half(x_rs1 +% imm)),
                 .lwu => zext_to_xlen(try hart.mem.load_word(x_rs1 +% imm)),
-                .addi => x_rs1 + imm,
-                .addiw => sext_to_xlen(word(x_rs1) + word(imm)),
+                .addi => x_rs1 +% imm,
+                .addiw => sext_to_xlen(word(x_rs1) +% word(imm)),
                 .slti => if (signed(x_rs1) < signed(imm)) 1 else 0,
                 .sltiu => if (x_rs1 < imm) 1 else 0,
                 .xori => x_rs1 ^ imm,
@@ -201,6 +201,8 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
                     if (inst.rs1 != 0) try hart.csrs.write(inst.csrno, hart.priv, v & ~zext_to_xlen(inst.rs1));
                 },
             }
+            hart.pc +%= 4;
+            return;
         },
         .S => |inst| {
             const x_rs1 = hart.x[inst.rs1];
@@ -255,6 +257,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             hart.pc = jump_target;
             return;
         },
+
         else => return Exception.IllegalInstruction,
     }
 }
