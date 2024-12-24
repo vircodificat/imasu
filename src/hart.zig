@@ -6,6 +6,7 @@ const Privilege = @import("priv.zig").Privilege;
 const Memory = @import("memory.zig");
 const CSRs = @import("csr.zig");
 const decode = @import("decode.zig");
+const debug = @import("debug.zig");
 const std = @import("std");
 
 const Hart = @This();
@@ -49,6 +50,7 @@ pub fn step(hart: *Hart) void {
 }
 
 fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
+    hart.dump_exception_to_stderr(err, tval);
     // TODO: S-mode delegation when S-mode is implemented
 
     // push mie to mpie, mie becomes false
@@ -73,6 +75,15 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
     switch (instruction) {
         else => return Exception.IllegalInstruction,
     }
+}
+
+fn dump_exception_to_stderr(hart: *const Hart, err: Exception, tval: xlen) void {
+    const stderr = std.io.getStdErr().writer();
+    var buffer: [4096]u8 = undefined;
+    var buf = debug.dump_exception(err, tval, &buffer) catch unreachable;
+    _ = stderr.write(buf) catch {};
+    buf = debug.dump_registers(hart, &buffer) catch unreachable;
+    _ = stderr.write(buf) catch {};
 }
 
 // cast to unsigned

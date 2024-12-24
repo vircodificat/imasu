@@ -2,7 +2,7 @@
 
 pub const Exception = error{
     // instruction fetch and execute exceptions
-    InstAddrMisaligned,
+    InstMisaligned,
     InstPageFault,
     InstAccessFault,
     IllegalInstruction,
