@@ -104,6 +104,28 @@ fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
 
 fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
     switch (instruction) {
+        .B => |inst| { // TODO: executable permission check for branch target
+            const x_rs1 = hart.x[inst.rs1];
+            const x_rs2 = hart.x[inst.rs2];
+            const imm = sext_to_xlen(inst.imm) << 1;
+            const branch = switch (inst.opcode) {
+                .beq => x_rs1 == x_rs2,
+                .bne => x_rs1 != x_rs2,
+                .blt => signed(x_rs1) < signed(x_rs2),
+                .bge => signed(x_rs1) >= signed(x_rs2),
+                .bltu => x_rs1 < x_rs2,
+                .bgeu => x_rs1 >= x_rs2,
+            };
+            if (branch) {
+                const branch_target = hart.pc +% imm;
+                if (branch_target % 4 != 0) return Exception.InstMisaligned;
+                hart.pc = branch_target;
+                return;
+            } else { // fallthrough
+                hart.pc +%= 4;
+                return;
+            }
+        },
         .U => |inst| {
             const imm = sext_to_xlen(u_type_imm_bits_to_value(inst.imm));
             if (inst.rd != 0) hart.x[inst.rd] = switch (inst.opcode) {
