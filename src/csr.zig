@@ -96,7 +96,7 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) !xlen {
 }
 
 // write to CSR 'csrno'
-pub fn write(csrs: CSRs, csrno: u12, v: xlen, priv: Privilege) !void {
+pub fn write(csrs: *CSRs, csrno: u12, v: xlen, priv: Privilege) !void {
     const perm: u2 = @truncate(csrno >> 8);
     if (@intFromEnum(priv) < perm) return Exception.IllegalInstruction;
     const rw: u2 = @truncate(csrno >> 10);

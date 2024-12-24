@@ -30,16 +30,25 @@ pub fn init() Hart {
 }
 
 // perform a fetch-decode-execute cycle of the hart
-pub fn step(hart: Hart) void {
+pub fn step(hart: *Hart) void {
     // fetch instruction
-    const ints_bits = hart.mem.fetch_instruction(hart.pc) catch |err| hart.trap_on_exception(err, hart.pc);
+    const ints_bits = hart.mem.fetch_instruction(hart.pc) catch |err| {
+        hart.trap_on_exception(err, hart.pc);
+        return;
+    };
     // decode instruction
-    const instruction = decode.instruction(ints_bits) catch |err| hart.trap_on_exception(err, ints_bits);
+    const instruction = decode.instruction(ints_bits) catch |err| {
+        hart.trap_on_exception(err, ints_bits);
+        return;
+    };
     // execute instruction
-    hart.execute(instruction) catch |err| hart.trap_on_exception(err, ints_bits);
+    hart.execute(instruction) catch |err| {
+        hart.trap_on_exception(err, ints_bits);
+        return;
+    };
 }
 
-fn trap_on_exception(hart: Hart, err: Exception, tval: xlen) void {
+fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
     // TODO: S-mode delegation when S-mode is implemented
 
     // push mie to mpie, mie becomes false
@@ -52,14 +61,14 @@ fn trap_on_exception(hart: Hart, err: Exception, tval: xlen) void {
     hart.csrs.mepc = hart.pc;
     // store exception cause and value
     hart.csrs.mtval = tval;
-    hart.csrs.mcause = hart.csrs.exception_to_xcause_csr_value(err);
+    hart.csrs.mcause = CSRs.exception_to_xcause_csr_value(err);
     // set program counter to trap vector base
     // as this is the trap procedure for exceptions not interrupts,
     // we always go to the base address
     hart.pc = hart.csrs.mtvec.base;
 }
 
-fn execute(hart: Hart, instruction: Instruction) Exception!void { // TODO
+fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
     _ = hart;
     switch (instruction) {
         else => return Exception.IllegalInstruction,
