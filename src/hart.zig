@@ -30,6 +30,10 @@ pub fn init() Hart {
     };
 }
 
+inline fn word(v: xlen) u32 {
+    return @truncate(v);
+}
+
 // cast to unsigned
 inline fn unsigned(value: anytype) std.meta.Int(.unsigned, @typeInfo(@TypeOf(value)).int.bits) {
     return @bitCast(value);
@@ -100,6 +104,33 @@ fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
 
 fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
     switch (instruction) {
+        .R => |inst| {
+            const x_rs1 = hart.x[inst.rs1];
+            const x_rs2 = hart.x[inst.rs2];
+            const shamt6: u6 = @truncate(x_rs2);
+            const shamt5: u5 = @truncate(x_rs2);
+            defer hart.x[0] = 0;
+            hart.x[inst.rd] = switch (inst.opcode) {
+                .add => x_rs1 +% x_rs2,
+                .addw => sext_to_xlen(word(x_rs1) +% word(x_rs2)),
+                .sub => x_rs1 -% x_rs2,
+                .subw => sext_to_xlen(word(x_rs1) -% word(x_rs2)),
+                .sll => x_rs1 << shamt6,
+                .sllw => sext_to_xlen(word(x_rs1) << shamt5),
+                .slt => if (signed(x_rs1) < signed(x_rs2)) 1 else 0,
+                .sltu => if (x_rs1 < x_rs2) 1 else 0,
+                .xor => x_rs1 ^ x_rs2,
+                .srl => x_rs1 >> shamt6,
+                .srlw => zext_to_xlen(word(x_rs1) >> shamt5),
+                .sra => unsigned(signed(x_rs1) >> shamt6),
+                .sraw => sext_to_xlen(signed(word(x_rs1)) >> shamt5),
+                .@"or" => x_rs1 | x_rs2,
+                .@"and" => x_rs1 & x_rs2,
+                else => return Exception.IllegalInstruction,
+            };
+            hart.pc +%= 4;
+            return;
+        },
         .S => |inst| {
             const x_rs1 = hart.x[inst.rs1];
             const x_rs2 = hart.x[inst.rs2];
