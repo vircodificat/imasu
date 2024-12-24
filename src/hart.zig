@@ -102,6 +102,20 @@ fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
     hart.pc = hart.csrs.mtvec.base;
 }
 
+fn mret(hart: *Hart) !void {
+    if (hart.priv != .M) return error.IllegalInstruction;
+    if (hart.csrs.mstatus.mpp != .M) unreachable;
+    // pop privilege from mpp, mpp becomes lowest privilege level
+    hart.priv = hart.csrs.mstatus.mpp;
+    hart.csrs.mstatus.mpp = .M; // TODO once U mode implemented
+    // pop mpie to mie, mpie becomes set
+    hart.csrs.mstatus.mie = hart.csrs.mstatus.mpie;
+    hart.csrs.mstatus.mpie = true;
+    // set the program counter to mepc
+    hart.pc = hart.csrs.mepc;
+    return;
+}
+
 fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
     switch (instruction) {
         .R => |inst| {
@@ -257,7 +271,23 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             hart.pc = jump_target;
             return;
         },
-
+        .Special => |inst| {
+            switch (inst) {
+                .fence => { // no-op
+                    hart.pc +%= 4;
+                },
+                .mret => {
+                    try hart.mret();
+                    return;
+                },
+                .ebreak => return Exception.Breakpoint,
+                .ecall => return switch (hart.priv) {
+                    .M => Exception.ECallMachine,
+                    else => unreachable,
+                },
+                else => return Exception.IllegalInstruction,
+            }
+        },
         else => return Exception.IllegalInstruction,
     }
 }
