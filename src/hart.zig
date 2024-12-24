@@ -104,6 +104,20 @@ fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
 
 fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
     switch (instruction) {
+        .S => |inst| {
+            const x_rs1 = hart.x[inst.rs1];
+            const x_rs2 = hart.x[inst.rs2];
+            const imm = sext_to_xlen(inst.imm);
+            const addr = x_rs1 +% imm;
+            switch (inst.opcode) {
+                .sb => try hart.mem.store_byte(addr, @truncate(x_rs2)),
+                .sh => try hart.mem.store_half(addr, @truncate(x_rs2)),
+                .sw => try hart.mem.store_word(addr, @truncate(x_rs2)),
+                .sd => try hart.mem.store_double(addr, x_rs2),
+            }
+            hart.pc +%= 4;
+            return;
+        },
         .B => |inst| { // TODO: executable permission check for branch target
             const x_rs1 = hart.x[inst.rs1];
             const x_rs2 = hart.x[inst.rs2];
