@@ -169,6 +169,39 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             hart.pc +%= 4;
             return;
         },
+        .CSR => |inst| {
+            const x_rs1 = hart.x[inst.rs1];
+            switch (inst.opcode) {
+                .csrrw => { // no read if rd=x0, always write
+                    if (inst.rd != 0) hart.x[inst.rd] = try hart.csrs.read(inst.csrno, hart.priv);
+                    try hart.csrs.write(inst.csrno, hart.priv, x_rs1);
+                },
+                .csrrs => { // always read, no write if rs1=x0
+                    const v = try hart.csrs.read(inst.csrno, hart.priv);
+                    if (inst.rd != 0) hart.x[inst.rd] = v;
+                    if (inst.rs1 != 0) try hart.csrs.write(inst.csrno, hart.priv, v | x_rs1);
+                },
+                .csrrc => { // always read, no write if rs1=x0
+                    const v = try hart.csrs.read(inst.csrno, hart.priv);
+                    if (inst.rd != 0) hart.x[inst.rd] = v;
+                    if (inst.rs1 != 0) try hart.csrs.write(inst.csrno, hart.priv, v & ~x_rs1);
+                },
+                .csrrwi => { // no read if rd=x0, always write
+                    if (inst.rd != 0) hart.x[inst.rd] = try hart.csrs.read(inst.csrno, hart.priv);
+                    try hart.csrs.write(inst.csrno, hart.priv, zext_to_xlen(inst.rs1));
+                },
+                .csrrsi => { // always read, no write if rs1=x0
+                    const v = try hart.csrs.read(inst.csrno, hart.priv);
+                    if (inst.rd != 0) hart.x[inst.rd] = v;
+                    if (inst.rs1 != 0) try hart.csrs.write(inst.csrno, hart.priv, v | zext_to_xlen(inst.rs1));
+                },
+                .csrrci => { // always read, no write if rs1=x0
+                    const v = try hart.csrs.read(inst.csrno, hart.priv);
+                    if (inst.rd != 0) hart.x[inst.rd] = v;
+                    if (inst.rs1 != 0) try hart.csrs.write(inst.csrno, hart.priv, v & ~zext_to_xlen(inst.rs1));
+                },
+            }
+        },
         .S => |inst| {
             const x_rs1 = hart.x[inst.rs1];
             const x_rs2 = hart.x[inst.rs2];
