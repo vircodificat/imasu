@@ -131,6 +131,44 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             hart.pc +%= 4;
             return;
         },
+        .I => |inst| {
+            const x_rs1 = hart.x[inst.rs1];
+            const imm = sext_to_xlen(inst.imm);
+            const shamt6: u6 = @truncate(imm);
+            const shamt5: u5 = @truncate(imm);
+            defer hart.x[0] = 0;
+            hart.x[inst.rd] = switch (inst.opcode) {
+                .jalr => { // TODO: executable permission check for jump target
+                    const jump_target = x_rs1 +% imm & ~@as(xlen, 0b1);
+                    if (inst.rd != 0) hart.x[inst.rd] = hart.pc +% 4;
+                    if (jump_target % 4 != 0) return error.InstMisaligned;
+                    hart.pc = jump_target;
+                    return;
+                },
+                .lb => sext_to_xlen(try hart.mem.load_byte(x_rs1 +% imm)),
+                .lh => sext_to_xlen(try hart.mem.load_half(x_rs1 +% imm)),
+                .lw => sext_to_xlen(try hart.mem.load_word(x_rs1 +% imm)),
+                .ld => try hart.mem.load_double(x_rs1 +% imm),
+                .lbu => zext_to_xlen(try hart.mem.load_byte(x_rs1 +% imm)),
+                .lhu => zext_to_xlen(try hart.mem.load_half(x_rs1 +% imm)),
+                .lwu => zext_to_xlen(try hart.mem.load_word(x_rs1 +% imm)),
+                .addi => x_rs1 + imm,
+                .addiw => sext_to_xlen(word(x_rs1) + word(imm)),
+                .slti => if (signed(x_rs1) < signed(imm)) 1 else 0,
+                .sltiu => if (x_rs1 < imm) 1 else 0,
+                .xori => x_rs1 ^ imm,
+                .ori => x_rs1 | imm,
+                .andi => x_rs1 & imm,
+                .slli => x_rs1 << shamt6,
+                .slliw => sext_to_xlen(word(x_rs1) << shamt5),
+                .srli => x_rs1 >> shamt6,
+                .srliw => zext_to_xlen(word(x_rs1) >> shamt5),
+                .srai => unsigned(signed(x_rs1) >> shamt6),
+                .sraiw => sext_to_xlen(signed(word(x_rs1)) >> shamt5),
+            };
+            hart.pc +%= 4;
+            return;
+        },
         .S => |inst| {
             const x_rs1 = hart.x[inst.rs1];
             const x_rs2 = hart.x[inst.rs2];
