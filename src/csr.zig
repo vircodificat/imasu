@@ -28,7 +28,7 @@ inline fn mstatus_read(csrs: CSRs) xlen {
     // zig fmt: on
 }
 
-inline fn mstatus_write(csrs: CSRs, v: xlen) void {
+inline fn mstatus_write(csrs: *CSRs, v: xlen) void {
     // zig fmt: off
     csrs.mstatus.mie = get_bit(v, 3);
     csrs.mstatus.mpie = get_bit(v, 7);
@@ -42,20 +42,20 @@ inline fn mstatus_write(csrs: CSRs, v: xlen) void {
 // csrno[9:8] indicates the minimum privilege level required
 // to access the corresponding CSR,
 // csrno[11:10] = 11 indicates the CSR is read-only
-const csrnos = enum(u12) {
+const csr = struct {
     // zig fmt: off
-    mstatus    = 0x300,
-    misa       = 0x301,
-    mtvec      = 0x305,
-    mscratch   = 0x340,
-    mepc       = 0x341,
-    mcause     = 0x342,
-    mtval      = 0x343,
-    mvendorid  = 0xf11,
-    marchid    = 0xf12,
-    mimpid     = 0xf13,
-    mhartid    = 0xf14,
-    mconfigptr = 0xf15,
+    const mstatus    = 0x300;
+    const misa       = 0x301;
+    const mtvec      = 0x305;
+    const mscratch   = 0x340;
+    const mepc       = 0x341;
+    const mcause     = 0x342;
+    const mtval      = 0x343;
+    const mvendorid  = 0xf11;
+    const marchid    = 0xf12;
+    const mimpid     = 0xf13;
+    const mhartid    = 0xf14;
+    const mconfigptr = 0xf15;
     // zig fmt: on
 };
 
@@ -97,41 +97,42 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) !xlen {
     if (@intFromEnum(priv) < perm) return Exception.IllegalInstruction;
     // permission check passed
     return switch (csrno) {
-        csrnos.mstatus => csrs.mstatus_read(),
-        csrnos.misa => misa_value,
-        csrnos.mtvec => csrs.mtvec.base
+        csr.mstatus => csrs.mstatus_read(),
+        csr.misa => misa_value,
+        csr.mtvec => csrs.mtvec.base
             | @intFromBool(csrs.mtvec.vectored),
-        csrnos.mscratch => csrs.mscratch,
-        csrnos.mepc => csrs.mepc,
-        csrnos.mcause => csrs.mcause,
-        csrnos.mtval => csrs.mtval,
-        csrnos.mvendorid => 0,
-        csrnos.marchid => 0,
-        csrnos.mimpid => 0,
-        csrnos.mhartid => 0,
-        csrnos.mconfigptr => 0,
+        csr.mscratch => csrs.mscratch,
+        csr.mepc => csrs.mepc,
+        csr.mcause => csrs.mcause,
+        csr.mtval => csrs.mtval,
+        csr.mvendorid => 0,
+        csr.marchid => 0,
+        csr.mimpid => 0,
+        csr.mhartid => 0,
+        csr.mconfigptr => 0,
         else => Exception.IllegalInstruction,
     };
 }
 
 // write to CSR 'csrno'
-pub fn write(csrs: *CSRs, csrno: u12, v: xlen, priv: Privilege) !void {
+pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) !void {
     const perm: u2 = @truncate(csrno >> 8);
     if (@intFromEnum(priv) < perm) return Exception.IllegalInstruction;
     const rw: u2 = @truncate(csrno >> 10);
     if (rw == 0b11) return Exception.IllegalInstruction;
     // permission check passed
     switch (csrno) {
-        csrnos.mstatus => csrs.mstatus_write(v),
-        csrnos.misa => {},
-        csrnos.mtvec => csrs.mtvec = .{
+        csr.mstatus => csrs.mstatus_write(v),
+        csr.misa => {},
+        csr.mie => {}, // TODO
+        csr.mtvec => csrs.mtvec = .{
             .base = v & ~@as(xlen, 0b11),
             .vectored = (v & 0b11) == 0b01,
         },
-        csrnos.mscratch => csrs.mscratch = v,
-        csrnos.mepc => csrs.mepc = v,
-        csrnos.mcause => csrs.mcause = v,
-        csrnos.mtval => csrs.mtval = v,
+        csr.mscratch => csrs.mscratch = v,
+        csr.mepc => csrs.mepc = v,
+        csr.mcause => csrs.mcause = v,
+        csr.mtval => csrs.mtval = v,
         else => return Exception.IllegalInstruction,
     }
     return;
