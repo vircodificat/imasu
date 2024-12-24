@@ -4,15 +4,17 @@ const Instruction = @import("instruction.zig").Instruction;
 const Exception = @import("exception.zig").Exception;
 const Privilege = @import("priv.zig").Privilege;
 const Memory = @import("memory.zig").Memory;
+const CSRs = @import("csr.zig");
 const decode = @import("decode.zig");
 const std = @import("std");
 
 const Hart = @This();
 
-const xlen = u64; // integer register width
+pub const xlen = u64; // integer register width
 // hart state:
-x: [32]xlen, // general purpose registerss
+x: [32]xlen, // general purpose registers
 pc: xlen, // program counter
+csrs: CSRs, // control and status registers
 priv: Privilege, // privilege level
 
 mem: *Memory, // handle to main memory
@@ -21,6 +23,7 @@ pub fn init() Hart {
     return Hart{
         .x = .{0} ** 32,
         .pc = Memory.mem_base,
+        .csrs = CSRs.init(),
         .priv = .M,
         .mem = undefined,
     };
@@ -29,16 +32,31 @@ pub fn init() Hart {
 // perform a fetch-decode-execute cycle of the hart
 pub fn step(hart: Hart) void {
     // fetch instruction
-    const ints_bits = hart.mem.fetch_instruction(hart.pc) catch |err| hart.trap_on_exception(err);
+    const ints_bits = hart.mem.fetch_instruction(hart.pc) catch |err| hart.trap_on_exception(err, hart.pc);
     // decode instruction
-    const instruction = decode.instruction(ints_bits) catch |err| hart.trap_on_exception(err);
+    const instruction = decode.instruction(ints_bits) catch |err| hart.trap_on_exception(err, ints_bits);
     // execute instruction
-    hart.execute(instruction) catch |err| hart.trap_on_exception(err);
+    hart.execute(instruction) catch |err| hart.trap_on_exception(err, ints_bits);
 }
 
-fn trap_on_exception(hart: Hart, err: Exception) void { // TODO
-    _ = hart;
-    _ = err;
+fn trap_on_exception(hart: Hart, err: Exception, tval: xlen) void {
+    // TODO: S-mode delegation when S-mode is implemented
+
+    // push mie to mpie, mie becomes false
+    hart.csrs.mstatus.mpie = hart.csrs.mstatus.mie;
+    hart.csrs.mstatus.mie = false;
+    // push current privilege to mpp, privilege becomes M-mode
+    hart.csrs.mstatus.mpp = hart.priv;
+    hart.priv = .M;
+    // store pc into mepc
+    hart.csrs.mepc = hart.pc;
+    // store exception cause and value
+    hart.csrs.mtval = tval;
+    hart.csrs.mcause = hart.csrs.exception_to_xcause_csr_value(err);
+    // set program counter to trap vector base
+    // as this is the trap procedure for exceptions not interrupts,
+    // we always go to the base address
+    hart.pc = hart.csrs.mtvec.base;
 }
 
 fn execute(hart: Hart, instruction: Instruction) Exception!void { // TODO
