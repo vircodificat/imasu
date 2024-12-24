@@ -49,10 +49,6 @@ inline fn sext_to_xlen(value: anytype) xlen {
     return @bitCast(@as(signed_xlen, signed(value)));
 }
 
-inline fn u_type_imm_bits_to_value(u: u20) u32 {
-    return @as(u32, u) << 12;
-}
-
 fn dump_exception_to_stderr(hart: *const Hart, err: Exception, tval: xlen) void {
     const stderr = std.io.getStdErr().writer();
     var buffer: [4096]u8 = undefined;
@@ -141,7 +137,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             }
         },
         .U => |inst| {
-            const imm = sext_to_xlen(u_type_imm_bits_to_value(inst.imm));
+            const imm = sext_to_xlen(@as(u32, inst.imm) << 12);
             if (inst.rd != 0) hart.x[inst.rd] = switch (inst.opcode) {
                 .lui => imm,
                 .auipc => hart.pc +% imm,
