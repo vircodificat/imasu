@@ -107,6 +107,9 @@ pub fn instruction(bits: u32) !Instruction {
                 0b101 => if (funct7 & 0b101_1110 != 0) return error.IllegalInstruction,
                 else => {},
             }
+            if (op == .srai) { // srai must mask out bit 6 of funct7 out of the immediate
+                return Instruction{ .I = .{ .opcode = op, .rs1 = rs1, .rd = rd, .imm = imm & 0b1011_1111_1111 } };
+            }
             return Instruction{ .I = .{ .opcode = op, .rs1 = rs1, .rd = rd, .imm = imm } };
         },
         0b00101 => { // auipc
@@ -129,6 +132,9 @@ pub fn instruction(bits: u32) !Instruction {
                 // besides their distinguishing bit
                 0b101 => if (funct7 & 0b101_1111 != 0) return error.IllegalInstruction,
                 else => {},
+            }
+            if (op == .sraiw) { // sraiw must mask out bit 6 of funct7 out of the immediate
+                return Instruction{ .I = .{ .opcode = op, .rs1 = rs1, .rd = rd, .imm = imm & 0b1011_1111_1111 } };
             }
             return Instruction{ .I = .{ .opcode = op, .rs1 = rs1, .rd = rd, .imm = imm } };
         },
