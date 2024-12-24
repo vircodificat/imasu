@@ -9,6 +9,7 @@ pub const Memory = struct {
     pub const mem_base: u64 = 0x8000_0000; // lowest address of ram
 
     pub fn init(mem: []u8) Memory {
+        std.debug.assert(mem.len % 4096 == 0);
         return Memory{ .mem = mem };
     }
 
@@ -17,6 +18,7 @@ pub const Memory = struct {
         return addr >= base and addr <= base + len - sz;
     }
 
+    // internal load power-of-two bytes from address, as regular load or instruction fetch
     fn load(memory: Memory, comptime T: type, addr: u64, comptime inst_fetch: bool) !T {
         const sz = @divExact(@typeInfo(T).int.bits, 8);
         if (comptime !std.math.isPowerOfTwo(sz) or @typeInfo(T).int.signedness == .signed) {
@@ -34,6 +36,7 @@ pub const Memory = struct {
         return if (comptime inst_fetch) error.InstAccessFault else error.LoadAccessFault;
     }
 
+    // internal store power-of-two bytes at address
     fn store(memory: Memory, comptime T: type, addr: u64, v: T) !void {
         const sz = @divExact(@typeInfo(T).int.bits, 8);
         if (comptime !std.math.isPowerOfTwo(sz) or @typeInfo(T).int.signedness == .signed) {
