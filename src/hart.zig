@@ -30,6 +30,34 @@ pub fn init() Hart {
     };
 }
 
+// cast to unsigned
+inline fn unsigned(value: anytype) std.meta.Int(.unsigned, @typeInfo(@TypeOf(value)).int.bits) {
+    return @bitCast(value);
+}
+// cast to signed
+inline fn signed(value: anytype) std.meta.Int(.signed, @typeInfo(@TypeOf(value)).int.bits) {
+    return @bitCast(value);
+}
+// zero-extend to xlen
+inline fn zext_to_xlen(value: anytype) xlen {
+    const v = unsigned(value);
+    return @as(xlen, v);
+}
+// sign-extend to xlen
+inline fn sext_to_xlen(value: anytype) xlen {
+    const signed_xlen = std.meta.Int(.signed, @typeInfo(xlen).int.bits);
+    return @bitCast(@as(signed_xlen, signed(value)));
+}
+
+fn dump_exception_to_stderr(hart: *const Hart, err: Exception, tval: xlen) void {
+    const stderr = std.io.getStdErr().writer();
+    var buffer: [4096]u8 = undefined;
+    var buf = debug.dump_exception(err, tval, &buffer) catch unreachable;
+    _ = stderr.write(buf) catch {};
+    buf = debug.dump_registers(hart, &buffer) catch unreachable;
+    _ = stderr.write(buf) catch {};
+}
+
 // perform a fetch-decode-execute cycle of the hart
 pub fn step(hart: *Hart) void {
     // fetch instruction
@@ -75,32 +103,4 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
     switch (instruction) {
         else => return Exception.IllegalInstruction,
     }
-}
-
-fn dump_exception_to_stderr(hart: *const Hart, err: Exception, tval: xlen) void {
-    const stderr = std.io.getStdErr().writer();
-    var buffer: [4096]u8 = undefined;
-    var buf = debug.dump_exception(err, tval, &buffer) catch unreachable;
-    _ = stderr.write(buf) catch {};
-    buf = debug.dump_registers(hart, &buffer) catch unreachable;
-    _ = stderr.write(buf) catch {};
-}
-
-// cast to unsigned
-inline fn unsigned(value: anytype) std.meta.Int(.unsigned, @typeInfo(@TypeOf(value)).int.bits) {
-    return @bitCast(value);
-}
-// cast to signed
-inline fn signed(value: anytype) std.meta.Int(.signed, @typeInfo(@TypeOf(value)).int.bits) {
-    return @bitCast(value);
-}
-// zero-extend to xlen
-inline fn zext_to_xlen(value: anytype) xlen {
-    const v = unsigned(value);
-    return @as(xlen, v);
-}
-// sign-extend to xlen
-inline fn sext_to_xlen(value: anytype) xlen {
-    const signed_xlen = std.meta.Int(.signed, @typeInfo(xlen).int.bits);
-    return @bitCast(@as(signed_xlen, signed(value)));
 }

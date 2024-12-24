@@ -59,12 +59,6 @@ const csrnos = enum(u12) {
     // zig fmt: on
 };
 
-// zig fmt: off
-const misa_value: xlen = @as(xlen, 0b10) << 62 // xlen=64
-    | 0b10000000000000000100000000;
-// isa: zyxwvutsrqponmlkjihgfedcba
-// // zig fmt: on
-
 pub fn init() CSRs {
     return CSRs{
         .mepc = 0,
@@ -82,6 +76,20 @@ pub fn init() CSRs {
         },
     };
 }
+
+inline fn get_bit(v: xlen, bit: u6) bool {
+    return ((v >> bit) & 0b1) != 0;
+}
+
+inline fn set_bit(v: bool, bit: u6) xlen {
+    return @as(xlen, @intFromBool(v)) << bit;
+}
+
+// zig fmt: off
+const misa_value: xlen = @as(xlen, 0b10) << 62 // xlen=64
+    | 0b10000000000000000100000000;
+// isa: zyxwvutsrqponmlkjihgfedcba
+// // zig fmt: on
 
 // read from CSR 'csrno'
 pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) !xlen {
@@ -146,12 +154,4 @@ pub fn exception_to_xcause_csr_value(err: Exception) xlen {
         Exception.LoadPageFault => 13,
         Exception.StorePageFault => 15,
     };
-}
-
-inline fn get_bit(v: xlen, bit: u6) bool {
-    return ((v >> bit) & 0b1) != 0;
-}
-
-inline fn set_bit(v: bool, bit: u6) xlen {
-    return @as(xlen, @intFromBool(v)) << bit;
 }
