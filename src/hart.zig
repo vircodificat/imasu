@@ -135,7 +135,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
                 .sltu => if (x_rs1 < x_rs2) 1 else 0,
                 .xor => x_rs1 ^ x_rs2,
                 .srl => x_rs1 >> shamt6,
-                .srlw => zext_to_xlen(word(x_rs1) >> shamt5),
+                .srlw => sext_to_xlen(word(x_rs1) >> shamt5),
                 .sra => unsigned(signed(x_rs1) >> shamt6),
                 .sraw => sext_to_xlen(signed(word(x_rs1)) >> shamt5),
                 .@"or" => x_rs1 | x_rs2,
@@ -152,10 +152,9 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             const shamt5: u5 = @truncate(imm);
             defer hart.x[0] = 0;
             hart.x[inst.rd] = switch (inst.opcode) {
-                .jalr => { // TODO: executable permission check for jump target
+                .jalr => {
                     const jump_target = x_rs1 +% imm & ~@as(xlen, 0b1);
                     if (inst.rd != 0) hart.x[inst.rd] = hart.pc +% 4;
-                    if (jump_target % 4 != 0) return error.InstMisaligned;
                     hart.pc = jump_target;
                     return;
                 },
@@ -176,7 +175,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
                 .slli => x_rs1 << shamt6,
                 .slliw => sext_to_xlen(word(x_rs1) << shamt5),
                 .srli => x_rs1 >> shamt6,
-                .srliw => zext_to_xlen(word(x_rs1) >> shamt5),
+                .srliw => sext_to_xlen(word(x_rs1) >> shamt5),
                 .srai => unsigned(signed(x_rs1) >> shamt6),
                 .sraiw => sext_to_xlen(signed(word(x_rs1)) >> shamt5),
             };
@@ -232,7 +231,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             hart.pc +%= 4;
             return;
         },
-        .B => |inst| { // TODO: executable permission check for branch target
+        .B => |inst| {
             const x_rs1 = hart.x[inst.rs1];
             const x_rs2 = hart.x[inst.rs2];
             const imm = sext_to_xlen(inst.imm) << 1;
@@ -246,7 +245,6 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             };
             if (branch) {
                 const branch_target = hart.pc +% imm;
-                if (branch_target % 4 != 0) return Exception.InstMisaligned;
                 hart.pc = branch_target;
                 return;
             } else { // fallthrough
@@ -263,17 +261,16 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             hart.pc +%= 4;
             return;
         },
-        .J => |inst| { // TODO: executable permission check for jump target
+        .J => |inst| {
             const imm = sext_to_xlen(inst.imm) << 1;
             const jump_target = hart.pc +% imm;
             if (inst.rd != 0) hart.x[inst.rd] = hart.pc +% 4;
-            if (jump_target % 4 != 0) return Exception.InstMisaligned;
             hart.pc = jump_target;
             return;
         },
         .Special => |inst| {
             switch (inst) {
-                .fence => { // no-op
+                .fence, .@"fence.i" => { // no-op
                     hart.pc +%= 4;
                 },
                 .mret => {
