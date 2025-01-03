@@ -19,6 +19,16 @@ mstatus: struct { // M-mode status register
     mpie: bool, // M-mode previous interrupt enable
     mpp: Privilege, // previous privilege
 },
+mie: struct { // M-mode interrupt enable register
+    msie: bool, // Software interrupt enable
+    mtie: bool, // Timer interrupt enable
+    meie: bool, // External interrupt enable
+},
+mip: struct { // M-mode interrupt pending register
+    msip: bool, // Software interrupt pending
+    mtip: bool, // Timer interrupt pending
+    meip: bool, // External interrupt pending
+},
 
 inline fn mstatus_read(csrs: CSRs) xlen {
     // zig fmt: off
@@ -38,6 +48,20 @@ inline fn mstatus_write(csrs: *CSRs, v: xlen) void {
     if (mpp == 0b11) csrs.mstatus.mpp = .M;
 }
 
+inline fn mie_read(csrs: CSRs) xlen {
+    return set_bit(csrs.mie.msie, 3) | set_bit(csrs.mie.mtie, 7) | set_bit(csrs.mie.meie, 11);
+}
+
+inline fn mie_write(csrs: *CSRs, v: xlen) void {
+    csrs.mie.msie = get_bit(v, 3);
+    csrs.mie.mtie = get_bit(v, 7);
+    csrs.mie.meie = get_bit(v, 11);
+}
+
+inline fn mip_read(csrs: CSRs) xlen {
+    return set_bit(csrs.mip.msip, 3) | set_bit(csrs.mip.mtip, 7) | set_bit(csrs.mip.meip, 11);
+}
+
 // CSR numbering
 // csrno[9:8] indicates the minimum privilege level required
 // to access the corresponding CSR,
@@ -52,6 +76,7 @@ const csr = struct {
     const mepc       = 0x341;
     const mcause     = 0x342;
     const mtval      = 0x343;
+    const mip        = 0x344;
     const mvendorid  = 0xf11;
     const marchid    = 0xf12;
     const mimpid     = 0xf13;
@@ -74,6 +99,16 @@ pub fn init() CSRs {
             .mie = false,
             .mpie = false,
             .mpp = .M, // TODO: when U-mode is implemented, set to U
+        },
+        .mie = .{
+            .msie = false,
+            .mtie = false,
+            .meie = false,
+        },
+        .mip = .{
+            .msip = false,
+            .mtip = false,
+            .meip = false,
         },
     };
 }
@@ -100,13 +135,14 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) !xlen {
     return switch (csrno) {
         csr.mstatus => csrs.mstatus_read(),
         csr.misa => misa_value,
-        csr.mie => 0, // TODO
+        csr.mie => csrs.mie_read(),
         csr.mtvec => csrs.mtvec.base
             | @intFromBool(csrs.mtvec.vectored),
         csr.mscratch => csrs.mscratch,
         csr.mepc => csrs.mepc,
         csr.mcause => csrs.mcause,
         csr.mtval => csrs.mtval,
+        csr.mip => csrs.mip_read(),
         csr.mvendorid => 0,
         csr.marchid => 0,
         csr.mimpid => 0,
@@ -126,7 +162,7 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) !void {
     switch (csrno) {
         csr.mstatus => csrs.mstatus_write(v),
         csr.misa => {},
-        csr.mie => {}, // TODO
+        csr.mie => csrs.mie_write(v),
         csr.mtvec => csrs.mtvec = .{
             .base = v & ~@as(xlen, 0b11),
             .vectored = (v & 0b11) == 0b01,
@@ -135,6 +171,7 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) !void {
         csr.mepc => csrs.mepc = v,
         csr.mcause => csrs.mcause = v,
         csr.mtval => csrs.mtval = v,
+        csr.mip => {}, // mip is read-only
         else => return Exception.IllegalInstruction,
     }
     return;
