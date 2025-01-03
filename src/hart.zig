@@ -8,6 +8,7 @@ const CSRs = @import("csr.zig");
 const decode = @import("decode.zig");
 const debug = @import("debug.zig");
 const std = @import("std");
+const assert = std.debug.assert;
 
 const Hart = @This();
 
@@ -53,6 +54,12 @@ inline fn sext_to_xlen(value: anytype) xlen {
     return @bitCast(@as(signed_xlen, signed(value)));
 }
 
+pub const InterruptSource = enum {
+    Software,
+    Timer,
+    External,
+};
+
 fn dump_exception_to_stderr(hart: *const Hart, err: Exception, tval: xlen) void {
     const stderr = std.io.getStdErr().writer();
     var buffer: [4096]u8 = undefined;
@@ -79,6 +86,59 @@ pub fn step(hart: *Hart) void {
         hart.trap_on_exception(err, ints_bits);
         return;
     };
+}
+
+// set the hart's interrupt pending bit for some source
+pub fn assert_interrupt_pending(hart: *Hart, source: InterruptSource, v: bool) void {
+    switch (source) {
+        .Software => hart.csrs.mip.msip = v,
+        .Timer => hart.csrs.mip.mtip = v,
+        .External => hart.csrs.mip.meip = v,
+    }
+}
+
+fn try_take_interrupt(hart: *Hart) void {
+    // if the global mie bit is disabled, do not take any interrupts
+    if (hart.csrs.mstatus.mie == false) return;
+    // check for and take external interrupts
+    if (hart.csrs.mip.meip and hart.csrs.mie.meie) {
+        hart.trap_on_interrupt(.External);
+        return;
+    }
+    // check for and take software interrupts
+    if (hart.csrs.mip.msip and hart.csrs.mie.msie) {
+        hart.trap_on_interrupt(.Software);
+        return;
+    } // check for and take timer interrupts
+    if (hart.csrs.mip.mtip and hart.csrs.mie.mtie) {
+        hart.trap_on_interrupt(.Timer);
+        return;
+    }
+}
+
+fn trap_on_interrupt(hart: *Hart, source: InterruptSource) void {
+    assert(hart.csrs.mstatus.mie == true);
+    const xcause_exception_code = switch (source) {
+        .Software => 3,
+        .Timer => 7,
+        .External => 11,
+    };
+    // push mie to mpie, mie becomes false
+    hart.csrs.mstatus.mpie = hart.csrs.mstatus.mie;
+    hart.csrs.mstatus.mie = false;
+    // push current privilege to mpp, privilege becomes M-mode
+    hart.csrs.mstatus.mpp = hart.priv;
+    hart.priv = .M;
+    // store pc into mepc
+    hart.csrs.mepc = hart.pc;
+    // mtval is set to 0
+    hart.csrs.mtval = 0;
+    // mcause most significant bit is set to 1 to indicate interrupt
+    // and also set the exception code to the right interrupt
+    hart.csrs.mcause = @as(xlen, 1 << 63) | xcause_exception_code;
+    // as this is an interrupt, set pc based on whether mtvec is direct or vectored
+    hart.pc = hart.csrs.mtvec.base;
+    if (hart.csrs.mtvec.vectored) hart.pc += 4 * xcause_exception_code;
 }
 
 fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
