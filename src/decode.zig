@@ -150,7 +150,7 @@ pub fn instruction(bits: u32) !Instruction {
             return Instruction{ .S = .{ .opcode = op, .rs1 = rs1, .rs2 = rs2, .imm = imm } };
         },
         0b01011 => { // AMO instructions
-            if (funct3 != 0b010 or funct3 != 0b011) return error.IllegalInstruction;
+            if (funct3 != 0b010 and funct3 != 0b011) return error.IllegalInstruction;
             const funct7_top5: u5 = @truncate(funct7 >> 2);
             const funct3_bit1: u1 = @truncate(funct3);
             const op: Opcode.AMO = switch (funct3_bit1) {
