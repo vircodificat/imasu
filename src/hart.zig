@@ -102,7 +102,7 @@ pub fn assert_interrupt_pending(hart: *Hart, source: InterruptSource, v: bool) v
     }
 }
 
-fn try_take_interrupt(hart: *Hart) void {
+pub fn try_take_interrupt(hart: *Hart) void {
     // if the global mie bit is disabled, do not take any interrupts
     if (hart.csrs.mstatus.mie == false) return;
     // check for and take external interrupts
@@ -123,7 +123,7 @@ fn try_take_interrupt(hart: *Hart) void {
 
 fn trap_on_interrupt(hart: *Hart, source: InterruptSource) void {
     assert(hart.csrs.mstatus.mie == true);
-    const xcause_exception_code = switch (source) {
+    const xcause_exception_code: xlen = switch (source) {
         .Software => 3,
         .Timer => 7,
         .External => 11,
