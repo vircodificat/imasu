@@ -18,6 +18,10 @@ x: [32]xlen, // general purpose registers
 pc: xlen, // program counter
 csrs: CSRs, // control and status registers
 priv: Privilege, // privilege level
+res: ?struct { // reservation set for lr/sc
+    addr: xlen, // address
+    double: bool, // reservation for a double or word
+},
 
 mem: *Memory, // handle to main memory
 
@@ -27,6 +31,7 @@ pub fn init() Hart {
         .pc = Memory.mem_base,
         .csrs = CSRs.init(),
         .priv = .M,
+        .res = null,
         .mem = undefined,
     };
 }
@@ -205,6 +210,100 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             hart.pc +%= 4;
             return;
         },
+        .AMO => |inst| {
+            // atomic instructions are not performed atomically
+            // as there is only one hart executing instructions
+            const x_rs1 = hart.x[inst.rs1];
+            const x_rs2 = hart.x[inst.rs2];
+            const result: xlen = switch (inst.opcode) {
+                .@"lr.w" => lrw: {
+                    defer hart.res = .{ .addr = x_rs1, .double = false };
+                    break :lrw sext_to_xlen(try hart.mem.load_word(x_rs1));
+                },
+                .@"lr.d" => lrd: {
+                    defer hart.res = .{ .addr = x_rs1, .double = true };
+                    break :lrd try hart.mem.load_double(x_rs1);
+                },
+                .@"sc.w" => scw: {
+                    defer hart.res = null;
+                    errdefer hart.res = null;
+                    if (hart.res) |res| {
+                        if ((x_rs1 == res.addr) or (res.double and x_rs1 == res.addr + 4)) {
+                            try hart.mem.store_word(x_rs1, word(x_rs2));
+                            break :scw 0; // success
+                        }
+                    }
+                    break :scw 1; // fail
+                },
+                .@"sc.d" => scd: {
+                    defer hart.res = null;
+                    errdefer hart.res = null;
+                    if (hart.res) |res| {
+                        if (res.double and x_rs1 == res.addr) {
+                            try hart.mem.store_double(x_rs1, x_rs2);
+                            break :scd 0; // success
+                        }
+                    }
+                    break :scd 1; // fail
+                },
+                .@"amoswap.w",
+                .@"amoadd.w",
+                .@"amoxor.w",
+                .@"amoand.w",
+                .@"amoor.w",
+                .@"amomin.w",
+                .@"amomax.w",
+                .@"amominu.w",
+                .@"amomaxu.w",
+                => |amo_w| amo_w: {
+                    const load = try hart.mem.load_word(x_rs1);
+                    const w_rs2 = word(x_rs2);
+                    const store = switch (amo_w) {
+                        .@"amoswap.w" => w_rs2,
+                        .@"amoadd.w" => load +% w_rs2,
+                        .@"amoxor.w" => load ^ w_rs2,
+                        .@"amoand.w" => load & w_rs2,
+                        .@"amoor.w" => load | w_rs2,
+                        .@"amomin.w" => unsigned(@min(signed(load), signed(w_rs2))),
+                        .@"amomax.w" => unsigned(@max(signed(load), signed(w_rs2))),
+                        .@"amominu.w" => @min(load, w_rs2),
+                        .@"amomaxu.w" => @max(load, w_rs2),
+                        else => unreachable,
+                    };
+                    try hart.mem.store_word(x_rs1, store);
+                    break :amo_w sext_to_xlen(load);
+                },
+                .@"amoswap.d",
+                .@"amoadd.d",
+                .@"amoxor.d",
+                .@"amoand.d",
+                .@"amoor.d",
+                .@"amomin.d",
+                .@"amomax.d",
+                .@"amominu.d",
+                .@"amomaxu.d",
+                => |amo_d| amo_d: {
+                    const load = try hart.mem.load_double(x_rs1);
+                    const store = switch (amo_d) {
+                        .@"amoswap.d" => x_rs2,
+                        .@"amoadd.d" => load +% x_rs2,
+                        .@"amoxor.d" => load ^ x_rs2,
+                        .@"amoand.d" => load & x_rs2,
+                        .@"amoor.d" => load | x_rs2,
+                        .@"amomin.d" => unsigned(@min(signed(load), signed(x_rs2))),
+                        .@"amomax.d" => unsigned(@max(signed(load), signed(x_rs2))),
+                        .@"amominu.d" => @min(load, x_rs2),
+                        .@"amomaxu.d" => @max(load, x_rs2),
+                        else => unreachable,
+                    };
+                    try hart.mem.store_double(x_rs1, store);
+                    break :amo_d load;
+                },
+            };
+            if (inst.rd != 0) hart.x[inst.rd] = result;
+            hart.pc +%= 4;
+            return;
+        },
         .I => |inst| {
             const x_rs1 = hart.x[inst.rs1];
             const imm = sext_to_xlen(inst.imm);
@@ -345,6 +444,5 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
                 else => return Exception.IllegalInstruction,
             }
         },
-        else => return Exception.IllegalInstruction,
     }
 }
