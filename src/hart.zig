@@ -181,7 +181,7 @@ fn mret(hart: *Hart) !void {
     return;
 }
 
-fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
+fn execute(hart: *Hart, instruction: Instruction) Exception!void {
     switch (instruction) {
         .R => |inst| {
             const x_rs1 = hart.x[inst.rs1];
@@ -205,7 +205,22 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
                 .sraw => sext_to_xlen(signed(word(x_rs1)) >> shamt5),
                 .@"or" => x_rs1 | x_rs2,
                 .@"and" => x_rs1 & x_rs2,
-                else => return Exception.IllegalInstruction,
+                // M-extension
+                .mul => x_rs1 *% x_rs2,
+                .mulw => sext_to_xlen(word(x_rs1) *% word(x_rs2)),
+                .mulh => mulh(x_rs1, x_rs2),
+                .mulhsu => mulhsu(x_rs1, x_rs2),
+                .mulhu => mulhu(x_rs1, x_rs2),
+                .div => div(x_rs1, x_rs2),
+                .divw => sext_to_xlen(divw(word(x_rs1), word(x_rs2))),
+                .divu => divu(x_rs1, x_rs2),
+                .divuw => sext_to_xlen(divuw(word(x_rs1), word(x_rs2))),
+                .rem => rem(x_rs1, x_rs2),
+                .remw => sext_to_xlen(remw(word(x_rs1), word(x_rs2))),
+                .remu => if (x_rs2 == 0) x_rs1 else x_rs1 % x_rs2,
+                .remuw => sext_to_xlen(
+                    if (word(x_rs2) == 0) word(x_rs1) else word(x_rs1) % word(x_rs2),
+                ),
             };
             hart.pc +%= 4;
             return;
@@ -445,4 +460,86 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void { // TODO
             }
         },
     }
+}
+
+fn mulh(x_rs1: u64, x_rs2: u64) u64 {
+    const v = @as(i128, signed(x_rs1)) *% @as(i128, signed(x_rs2));
+    return @truncate(unsigned(v) >> 64);
+}
+
+fn mulhu(x_rs1: u64, x_rs2: u64) u64 {
+    const v = @as(u128, x_rs1) *% @as(u128, x_rs2);
+    return @truncate(v >> 64);
+}
+
+fn mulhsu(x_rs1: u64, x_rs2: u64) u64 {
+    const sext_rs1 = @as(i128, signed(x_rs1));
+    const v: u128 = unsigned(sext_rs1) *% @as(u128, x_rs2);
+    return @truncate(v >> 64);
+}
+
+fn div(x_rs1: u64, x_rs2: u64) u64 {
+    const s_rs1 = signed(x_rs1);
+    const s_rs2 = signed(x_rs2);
+    // division by 0
+    if (s_rs2 == 0) return unsigned(@as(i64, -1));
+    // divison overflow: intmin / -1
+    if (s_rs1 == std.math.minInt(i64) and s_rs2 == -1) return x_rs1;
+    // perform division
+    return unsigned(@divTrunc(s_rs1, s_rs2));
+}
+
+fn divw(x_rs1: u32, x_rs2: u32) u32 {
+    const s_rs1 = signed(x_rs1);
+    const s_rs2 = signed(x_rs2);
+    // division by 0
+    if (s_rs2 == 0) return unsigned(@as(i32, -1));
+    // divison overflow: intmin / -1
+    if (s_rs1 == std.math.minInt(i32) and s_rs2 == -1) return x_rs1;
+    // perform division
+    return unsigned(@divTrunc(s_rs1, s_rs2));
+}
+
+fn divu(x_rs1: u64, x_rs2: u64) u64 {
+    // division by 0
+    if (x_rs2 == 0) return std.math.maxInt(u64);
+    // perform division
+    return @divTrunc(x_rs1, x_rs2);
+}
+
+fn divuw(x_rs1: u32, x_rs2: u32) u32 {
+    // division by 0
+    if (x_rs2 == 0) return std.math.maxInt(u32);
+    // perform division
+    return @divTrunc(x_rs1, x_rs2);
+}
+
+fn rem(x_rs1: u64, x_rs2: u64) u64 {
+    const s_rs1 = signed(x_rs1);
+    const s_rs2 = signed(x_rs2);
+    // division by 0
+    if (s_rs2 == 0) return x_rs1;
+    // division overflow: intmin / -1
+    if (s_rs1 == std.math.minInt(i64) and s_rs2 == -1) return 0;
+    // perform remainder
+    return if (s_rs2 < 0) unsigned(
+        @rem(s_rs1, -s_rs2),
+    ) else unsigned(
+        @rem(s_rs1, s_rs2),
+    );
+}
+
+fn remw(w_rs1: u32, w_rs2: u32) u32 {
+    const s_rs1 = signed(w_rs1);
+    const s_rs2 = signed(w_rs2);
+    // division by 0
+    if (s_rs2 == 0) return w_rs1;
+    // division overflow: intmin / -1
+    if (s_rs1 == std.math.minInt(i32) and s_rs2 == -1) return 0;
+    // perform remainder
+    return if (s_rs2 < 0) unsigned(
+        @rem(s_rs1, -s_rs2),
+    ) else unsigned(
+        @rem(s_rs1, s_rs2),
+    );
 }

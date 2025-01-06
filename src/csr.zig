@@ -123,8 +123,8 @@ inline fn set_bit(v: bool, bit: u6) xlen {
 
 // zig fmt: off
 const misa_value: xlen = @as(xlen, 0b10) << 62 // xlen=64
-    | 0b10000000000000000100000001;
-// isa: zyxwvutsrqponmlkjihgfedcba
+    | 0b10000000000001000100000001;
+// isa: zyxwvutsrqponmlkjihgfedcba, currently implemented bits: imaz
 // // zig fmt: on
 
 // read from CSR 'csrno'
