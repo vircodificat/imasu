@@ -77,7 +77,7 @@ fn dump_exception_to_stderr(hart: *const Hart, err: Exception, tval: xlen) void 
 // perform a fetch-decode-execute cycle of the hart
 pub fn step(hart: *Hart) void {
     // fetch instruction
-    const ints_bits = hart.mem.fetch_instruction(hart.pc) catch |err| {
+    const ints_bits = hart.mem.fetch(hart.pc) catch |err| {
         hart.trap_on_exception(err, hart.pc);
         return;
     };
@@ -114,7 +114,8 @@ pub fn try_take_interrupt(hart: *Hart) void {
     if (hart.csrs.mip.msip and hart.csrs.mie.msie) {
         hart.trap_on_interrupt(.Software);
         return;
-    } // check for and take timer interrupts
+    }
+    // check for and take timer interrupts
     if (hart.csrs.mip.mtip and hart.csrs.mie.mtie) {
         hart.trap_on_interrupt(.Timer);
         return;
