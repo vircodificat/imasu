@@ -170,10 +170,10 @@ fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
 
 fn mret(hart: *Hart) !void {
     if (hart.priv != .M) return error.IllegalInstruction;
-    if (hart.csrs.mstatus.mpp != .M) unreachable;
+    if (hart.csrs.mstatus.mpp == .S) unreachable;
     // pop privilege from mpp, mpp becomes lowest privilege level
     hart.priv = hart.csrs.mstatus.mpp;
-    hart.csrs.mstatus.mpp = .M; // TODO once U mode implemented
+    hart.csrs.mstatus.mpp = .U;
     // pop mpie to mie, mpie becomes set
     hart.csrs.mstatus.mie = hart.csrs.mstatus.mpie;
     hart.csrs.mstatus.mpie = true;
@@ -447,13 +447,19 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
             switch (inst) {
                 .fence, .@"fence.i" => { // no-op
                     hart.pc +%= 4;
+                    return;
                 },
                 .mret => {
                     try hart.mret();
                     return;
                 },
+                .wfi => { // no-op
+                    hart.pc +%= 4;
+                    return;
+                },
                 .ebreak => return Exception.Breakpoint,
                 .ecall => return switch (hart.priv) {
+                    .U => Exception.ECallUser,
                     .M => Exception.ECallMachine,
                     else => unreachable,
                 },

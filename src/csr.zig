@@ -43,9 +43,9 @@ inline fn mstatus_write(csrs: *CSRs, v: xlen) void {
     csrs.mstatus.mie = get_bit(v, 3);
     csrs.mstatus.mpie = get_bit(v, 7);
     const mpp: u2 = @truncate((v >> 11) & 0b11);
-    // TODO: only M-mode is supported for now, change this check
-    // once U-mode and S-mode are implemented
-    if (mpp == 0b11) csrs.mstatus.mpp = .M;
+    // TODO: only M and U modes are supported for now, change this check
+    // once S-mode is implemented
+    if (mpp == 0b00 or mpp == 0b11) csrs.mstatus.mpp = @enumFromInt(mpp);
 }
 
 inline fn mie_read(csrs: CSRs) xlen {
