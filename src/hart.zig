@@ -20,7 +20,7 @@ csrs: CSRs, // control and status registers
 priv: Privilege, // privilege level
 res: ?struct { // reservation set for lr/sc
     addr: xlen, // address
-    double: bool, // reservation for a double or word
+    double: bool, // reservation is for a double or word
 },
 
 mem: *Memory, // handle to main memory
@@ -135,20 +135,20 @@ fn trap_on_interrupt(hart: *Hart, source: InterruptSource) void {
     // push current privilege to mpp, privilege becomes M-mode
     hart.csrs.mstatus.mpp = hart.priv;
     hart.priv = .M;
-    // store pc into mepc
-    hart.csrs.mepc = hart.pc;
     // mtval is set to 0
     hart.csrs.mtval = 0;
     // mcause most significant bit is set to 1 to indicate interrupt
     // and also set the exception code to the right interrupt
     hart.csrs.mcause = @as(xlen, 1 << 63) | xcause_exception_code;
+    // store pc into mepc, set pc to trap vector
     // as this is an interrupt, set pc based on whether mtvec is direct or vectored
+    hart.csrs.mepc = hart.pc;
     hart.pc = hart.csrs.mtvec.base;
-    if (hart.csrs.mtvec.vectored) hart.pc += 4 * xcause_exception_code;
+    if (hart.csrs.mtvec.vectored) hart.pc +%= 4 * xcause_exception_code;
+    return;
 }
 
 fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
-    hart.dump_exception_to_stderr(err, tval);
     // TODO: S-mode delegation when S-mode is implemented
 
     // push mie to mpie, mie becomes false
@@ -157,15 +157,15 @@ fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
     // push current privilege to mpp, privilege becomes M-mode
     hart.csrs.mstatus.mpp = hart.priv;
     hart.priv = .M;
-    // store pc into mepc
-    hart.csrs.mepc = hart.pc;
     // store exception cause and value
     hart.csrs.mtval = tval;
     hart.csrs.mcause = CSRs.exception_to_xcause_csr_value(err);
-    // set program counter to trap vector base
+    // store pc into mepc, set pc to trap vector base
     // as this is the trap procedure for exceptions not interrupts,
     // we always go to the base address
+    hart.csrs.mepc = hart.pc;
     hart.pc = hart.csrs.mtvec.base;
+    return;
 }
 
 fn mret(hart: *Hart) !void {
