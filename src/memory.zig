@@ -26,7 +26,7 @@ inline fn access_bounded(addr: u64, sz: u64, base: u64, len: u64) bool {
 // fetch instruction bytes from address
 // instruction fetch is 4 bytes long
 // instruction fetch is not supported from mmio devices
-fn fetch(memory: Memory, addr: u64) !u32 {
+pub fn fetch(memory: Memory, addr: u64) !u32 {
     // check alignment
     if (addr % 4 != 0) return error.InstMisaligned;
     // ram
