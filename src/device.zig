@@ -1,11 +1,13 @@
 // MMIO-accessible devices
 
+const ROM = @import("rom.zig");
 const std = @import("std");
 
 const Device = @This();
 
-kind: union(enum) {}, // device type
-
+kind: union(enum) { // device type
+    rom: *ROM,
+},
 mmio_base: u64, // start of device mmio region
 mmio_len: u64, // length of device mmio region
 
