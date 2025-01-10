@@ -2,6 +2,7 @@
 
 const Exception = @import("exception.zig").Exception;
 const Privilege = @import("priv.zig").Privilege;
+const CLINT = @import("timer.zig");
 const xlen = @import("hart.zig").xlen;
 
 const CSRs = @This();
@@ -29,6 +30,8 @@ mip: struct { // M-mode interrupt pending register
     mtip: bool, // Timer interrupt pending
     meip: bool, // External interrupt pending
 },
+
+time_csr_timer: *CLINT, // Timer for time CSR
 
 inline fn mstatus_read(csrs: CSRs) xlen {
     // zig fmt: off
@@ -76,6 +79,7 @@ const csr_mepc       = 0x341;
 const csr_mcause     = 0x342;
 const csr_mtval      = 0x343;
 const csr_mip        = 0x344;
+const csr_time       = 0xc01;
 const csr_mvendorid  = 0xf11;
 const csr_marchid    = 0xf12;
 const csr_mimpid     = 0xf13;
@@ -108,6 +112,7 @@ pub fn init() CSRs {
             .mtip = false,
             .meip = false,
         },
+        .time_csr_timer = undefined,
     };
 }
 
@@ -143,6 +148,7 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
         csr_mcause => csrs.mcause,
         csr_mtval => csrs.mtval,
         csr_mip => csrs.mip_read(),
+        csr_time => csrs.time_csr_timer.mtime,
         csr_mvendorid => 0,
         csr_marchid => 0,
         csr_mimpid => 0,
