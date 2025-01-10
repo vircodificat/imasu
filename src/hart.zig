@@ -77,18 +77,39 @@ fn dump_exception_to_stderr(hart: *const Hart, err: Exception, tval: xlen) void 
 // perform a fetch-decode-execute cycle of the hart
 pub fn step(hart: *Hart) void {
     // fetch instruction
-    const ints_bits = hart.mem.fetch(hart.pc) catch |err| {
+    const inst_bits = hart.mem.fetch(hart.pc) catch |err| {
+        // on instruction address misaligned or instruction fetch access/page fault,
+        // store the faulting virtual address in xtval,
+        // which is the value of the program counter
         hart.trap_on_exception(err, hart.pc);
         return;
     };
     // decode instruction
-    const instruction = decode.instruction(ints_bits) catch |err| {
-        hart.trap_on_exception(err, ints_bits);
+    const instruction = decode.instruction(inst_bits) catch |err| {
+        // instruction decode can only fail with an illegal instruction exception,
+        // so store the bits of the instruction in xtval
+        hart.trap_on_exception(err, zext_to_xlen(inst_bits));
         return;
     };
     // execute instruction
     hart.execute(instruction) catch |err| {
-        hart.trap_on_exception(err, ints_bits);
+        const tval = switch (err) {
+            // load/store exceptions store the faulty virtual address in xtval
+            Exception.LoadMisaligned,
+            Exception.StoreMisaligned,
+            Exception.LoadAccessFault,
+            Exception.StoreAccessFault,
+            Exception.LoadPageFault,
+            Exception.StorePageFault,
+            => hart.faulty_virtual_addr(instruction),
+            // illegal instruction exceptions store the bits of the faulty instruction
+            Exception.IllegalInstruction => zext_to_xlen(inst_bits),
+            // breakpoints store the faulty virtual address of the instruction (the pc)
+            Exception.Breakpoint => hart.pc,
+            // everything else is already handled or can be 0
+            else => 0,
+        };
+        hart.trap_on_exception(err, tval);
         return;
     };
 }
@@ -180,6 +201,19 @@ fn mret(hart: *Hart) !void {
     // set the program counter to mepc
     hart.pc = hart.csrs.mepc;
     return;
+}
+
+fn faulty_virtual_addr(hart: *Hart, instruction: Instruction) xlen {
+    return switch (instruction) {
+        .AMO => |inst| hart.x[inst.rs1],
+        .I => |inst| switch (inst.opcode) {
+            .jalr => hart.x[inst.rs1] +% inst.imm & ~@as(xlen, 0b1),
+            .lb, .lh, .lw, .ld, .lbu, .lhu, .lwu => hart.x[inst.rs1] +% inst.imm,
+            else => unreachable,
+        },
+        .S => |inst| hart.x[inst.rs1] +% inst.imm,
+        else => unreachable,
+    };
 }
 
 fn execute(hart: *Hart, instruction: Instruction) Exception!void {
