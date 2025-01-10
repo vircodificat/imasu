@@ -3,6 +3,7 @@
 const ROM = @import("rom.zig");
 const CLINT = @import("timer.zig");
 const PLIC = @import("plic.zig");
+const UART = @import("uart.zig");
 const std = @import("std");
 
 const Device = @This();
@@ -11,6 +12,7 @@ kind: union(enum) { // device type
     rom: *ROM,
     clint: *CLINT,
     plic: *PLIC,
+    uart: *UART,
 },
 mmio_base: u64, // start of device mmio region
 mmio_len: u64, // length of device mmio region
