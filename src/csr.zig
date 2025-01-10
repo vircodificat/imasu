@@ -66,24 +66,22 @@ inline fn mip_read(csrs: CSRs) xlen {
 // csrno[9:8] indicates the minimum privilege level required
 // to access the corresponding CSR,
 // csrno[11:10] = 11 indicates the CSR is read-only
-const csr = struct {
-    // zig fmt: off
-    const mstatus    = 0x300;
-    const misa       = 0x301;
-    const mie        = 0x304;
-    const mtvec      = 0x305;
-    const mscratch   = 0x340;
-    const mepc       = 0x341;
-    const mcause     = 0x342;
-    const mtval      = 0x343;
-    const mip        = 0x344;
-    const mvendorid  = 0xf11;
-    const marchid    = 0xf12;
-    const mimpid     = 0xf13;
-    const mhartid    = 0xf14;
-    const mconfigptr = 0xf15;
-    // zig fmt: on
-};
+// zig fmt: off
+const csr_mstatus    = 0x300;
+const csr_misa       = 0x301;
+const csr_mie        = 0x304;
+const csr_mtvec      = 0x305;
+const csr_mscratch   = 0x340;
+const csr_mepc       = 0x341;
+const csr_mcause     = 0x342;
+const csr_mtval      = 0x343;
+const csr_mip        = 0x344;
+const csr_mvendorid  = 0xf11;
+const csr_marchid    = 0xf12;
+const csr_mimpid     = 0xf13;
+const csr_mhartid    = 0xf14;
+const csr_mconfigptr = 0xf15;
+// zig fmt: on
 
 pub fn init() CSRs {
     return CSRs{
@@ -127,52 +125,54 @@ const misa_value: xlen = @as(xlen, 0b10) << 62 // xlen=64
 // isa: zyxwvutsrqponmlkjihgfedcba, currently implemented bits: imauz
 // // zig fmt: on
 
+const Illegal = Exception.IllegalInstruction;
+
 // read from CSR 'csrno'
-pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) !xlen {
+pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
     const perm: u2 = @truncate(csrno >> 8);
-    if (@intFromEnum(priv) < perm) return Exception.IllegalInstruction;
+    if (@intFromEnum(priv) < perm) return Illegal;
     // permission check passed
     return switch (csrno) {
-        csr.mstatus => csrs.mstatus_read(),
-        csr.misa => misa_value,
-        csr.mie => csrs.mie_read(),
-        csr.mtvec => csrs.mtvec.base
+        csr_mstatus => csrs.mstatus_read(),
+        csr_misa => misa_value,
+        csr_mie => csrs.mie_read(),
+        csr_mtvec => csrs.mtvec.base
             | @intFromBool(csrs.mtvec.vectored),
-        csr.mscratch => csrs.mscratch,
-        csr.mepc => csrs.mepc,
-        csr.mcause => csrs.mcause,
-        csr.mtval => csrs.mtval,
-        csr.mip => csrs.mip_read(),
-        csr.mvendorid => 0,
-        csr.marchid => 0,
-        csr.mimpid => 0,
-        csr.mhartid => 0,
-        csr.mconfigptr => 0,
-        else => Exception.IllegalInstruction,
+        csr_mscratch => csrs.mscratch,
+        csr_mepc => csrs.mepc,
+        csr_mcause => csrs.mcause,
+        csr_mtval => csrs.mtval,
+        csr_mip => csrs.mip_read(),
+        csr_mvendorid => 0,
+        csr_marchid => 0,
+        csr_mimpid => 0,
+        csr_mhartid => 0,
+        csr_mconfigptr => 0,
+        else => Illegal,
     };
 }
 
 // write to CSR 'csrno'
-pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) !void {
+pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
     const perm: u2 = @truncate(csrno >> 8);
-    if (@intFromEnum(priv) < perm) return Exception.IllegalInstruction;
+    if (@intFromEnum(priv) < perm) return Illegal;
     const rw: u2 = @truncate(csrno >> 10);
-    if (rw == 0b11) return Exception.IllegalInstruction;
+    if (rw == 0b11) return Illegal;
     // permission check passed
     switch (csrno) {
-        csr.mstatus => csrs.mstatus_write(v),
-        csr.misa => {},
-        csr.mie => csrs.mie_write(v),
-        csr.mtvec => csrs.mtvec = .{
+        csr_mstatus => csrs.mstatus_write(v),
+        csr_misa => {}, // misa is read-only
+        csr_mie => csrs.mie_write(v),
+        csr_mtvec => csrs.mtvec = .{
             .base = v & ~@as(xlen, 0b11),
             .vectored = (v & 0b11) == 0b01,
         },
-        csr.mscratch => csrs.mscratch = v,
-        csr.mepc => csrs.mepc = v,
-        csr.mcause => csrs.mcause = v,
-        csr.mtval => csrs.mtval = v,
-        csr.mip => {}, // mip is read-only
-        else => return Exception.IllegalInstruction,
+        csr_mscratch => csrs.mscratch = v,
+        csr_mepc => csrs.mepc = v,
+        csr_mcause => csrs.mcause = v,
+        csr_mtval => csrs.mtval = v,
+        csr_mip => {}, // mip is read-only
+        else => return Illegal,
     }
     return;
 }
