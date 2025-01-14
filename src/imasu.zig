@@ -28,20 +28,16 @@ pub fn main() !void {
         break :blk try file.readToEndAlloc(a, mem_sz);
     };
 
-    // allocate memory for dtb and load dtb into it
-    var dtb = try a.alloc(u8, 1024 * 64);
-    @memset(dtb, 0);
-    @memcpy(dtb[0..devicetree.len], devicetree);
-
     // allocate memory for ram and load image into it
     var ram = try a.alloc(u8, mem_sz);
     @memset(ram, 0);
     @memcpy(ram[0..image.len], image);
-
     // create memory with ram
     var mem = Memory.init(ram);
+
     // create a hart
     var hart = Hart.init();
+
     // create CLINT timer device
     var clint = CLINT.init();
     var clint_dev = Device{
@@ -49,6 +45,7 @@ pub fn main() !void {
         .mmio_base = 0x1100_0000,
         .mmio_len = CLINT.mmio_len,
     };
+
     // create PLIC device
     var plic = PLIC.init();
     var plic_dev = Device{
@@ -56,6 +53,7 @@ pub fn main() !void {
         .mmio_base = 0x0c00_0000,
         .mmio_len = PLIC.mmio_len,
     };
+
     // create UART device
     var uart = UART.init();
     var uart_dev = Device{
@@ -63,12 +61,16 @@ pub fn main() !void {
         .mmio_base = 0x1000_0000,
         .mmio_len = UART.mmio_len,
     };
+
+    const dtb_sz = 64 * 1024;
+    var dtb: [dtb_sz]u8 = .{0} ** dtb_sz;
+    @memcpy(dtb[0..devicetree.len], devicetree);
     // create DTB ROM device with dtb bytes
-    var dtb_rom = ROM{ .mem = dtb };
+    var dtb_rom = ROM{ .mem = &dtb };
     var dtb_dev = Device{
         .kind = .{ .rom = &dtb_rom },
         .mmio_base = 0x7000_0000,
-        .mmio_len = 0x1_0000,
+        .mmio_len = dtb_sz,
     };
 
     hart.mem = &mem;
@@ -79,14 +81,9 @@ pub fn main() !void {
     uart.interrupt_target = &plic;
 
     // list of all mmio devices
-    var mmio_devices_list = [_]*Device{
-        &clint_dev,
-        &plic_dev,
-        &uart_dev,
-        &dtb_dev,
-    };
+    var mmio_dev_list = [_]*Device{ &clint_dev, &plic_dev, &uart_dev, &dtb_dev };
     // attach them to main memory
-    mem.devices = mmio_devices_list[0..mmio_devices_list.len];
+    mem.devices = mmio_dev_list[0..mmio_dev_list.len];
 
     // set a1 register to start of dtb rom
     hart.x[11] = dtb_dev.mmio_base;
