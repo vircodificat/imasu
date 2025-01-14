@@ -1,18 +1,22 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-    const root = b.path("src/imasu.zig");
-
+    // executable step
     const exe = b.addExecutable(.{
-        .name = "imasu",
-        .root_source_file = root,
-        .target = target,
-        .optimize = optimize,
+        .name = "imasu64",
+        .root_source_file = b.path("src/imasu.zig"),
+        .target = b.standardTargetOptions(.{}),
+        .optimize = b.standardOptimizeOption(.{}),
     });
     exe.linkLibC();
     b.installArtifact(exe);
+
+    // compile devicetree blob to embed in emulator
+    const devicetree_cmd = b.addSystemCommand(&.{"dtc"});
+    devicetree_cmd.addFileArg(b.path("src/devicetree/imasu64.dts"));
+    devicetree_cmd.addArgs(&.{ "-O", "dtb", "-o" });
+    devicetree_cmd.addFileArg(b.path("src/devicetree/imasu64.dtb"));
+    exe.step.dependOn(&devicetree_cmd.step);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
