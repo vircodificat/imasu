@@ -52,7 +52,10 @@ pub fn j_type_immediate(bits: u32) u20 {
 
 // Decode a 32-bit instruction
 pub fn instruction(bits: u32) !Instruction {
-    if (bits & 0b11 != 0b11) return error.IllegalInstruction;
+    if (bits & 0b11 != 0b11) {
+        @branchHint(.cold);
+        return error.IllegalInstruction;
+    }
     // instruction bitfields
     const opcode: u5 = @truncate(bits >> 2);
     const funct3: u3 = @truncate(bits >> 12);

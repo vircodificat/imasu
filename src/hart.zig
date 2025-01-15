@@ -67,6 +67,7 @@ pub fn step(hart: *Hart) void {
         // on instruction address misaligned or instruction fetch access/page fault,
         // store the faulting virtual address in xtval,
         // which is the value of the program counter
+        @branchHint(.unlikely);
         hart.trap_on_exception(err, hart.pc);
         return;
     };
@@ -74,11 +75,13 @@ pub fn step(hart: *Hart) void {
     const instruction = decode.instruction(inst_bits) catch |err| {
         // instruction decode can only fail with an illegal instruction exception,
         // so store the bits of the instruction in xtval
+        @branchHint(.unlikely);
         hart.trap_on_exception(err, zext_to_xlen(inst_bits));
         return;
     };
     // execute instruction
     hart.execute(instruction) catch |err| {
+        @branchHint(.unlikely);
         const xtval = switch (err) {
             // load/store exceptions store the faulty virtual address in xtval
             Exception.LoadMisaligned,
@@ -543,9 +546,15 @@ fn div(x_rs1: u64, x_rs2: u64) u64 {
     const s_rs1 = signed(x_rs1);
     const s_rs2 = signed(x_rs2);
     // division by 0
-    if (s_rs2 == 0) return unsigned(@as(i64, -1));
+    if (s_rs2 == 0) {
+        @branchHint(.unlikely);
+        return unsigned(@as(i64, -1));
+    }
     // divison overflow: intmin / -1
-    if (s_rs1 == std.math.minInt(i64) and s_rs2 == -1) return x_rs1;
+    if (s_rs1 == std.math.minInt(i64) and s_rs2 == -1) {
+        @branchHint(.unlikely);
+        return x_rs1;
+    }
     // perform division
     return unsigned(@divTrunc(s_rs1, s_rs2));
 }
@@ -554,23 +563,35 @@ fn divw(x_rs1: u32, x_rs2: u32) u32 {
     const s_rs1 = signed(x_rs1);
     const s_rs2 = signed(x_rs2);
     // division by 0
-    if (s_rs2 == 0) return unsigned(@as(i32, -1));
+    if (s_rs2 == 0) {
+        @branchHint(.unlikely);
+        return unsigned(@as(i32, -1));
+    }
     // divison overflow: intmin / -1
-    if (s_rs1 == std.math.minInt(i32) and s_rs2 == -1) return x_rs1;
+    if (s_rs1 == std.math.minInt(i32) and s_rs2 == -1) {
+        @branchHint(.unlikely);
+        return x_rs1;
+    }
     // perform division
     return unsigned(@divTrunc(s_rs1, s_rs2));
 }
 
 fn divu(x_rs1: u64, x_rs2: u64) u64 {
     // division by 0
-    if (x_rs2 == 0) return std.math.maxInt(u64);
+    if (x_rs2 == 0) {
+        @branchHint(.unlikely);
+        return std.math.maxInt(u64);
+    }
     // perform division
     return @divTrunc(x_rs1, x_rs2);
 }
 
 fn divuw(x_rs1: u32, x_rs2: u32) u32 {
     // division by 0
-    if (x_rs2 == 0) return std.math.maxInt(u32);
+    if (x_rs2 == 0) {
+        @branchHint(.unlikely);
+        return std.math.maxInt(u32);
+    }
     // perform division
     return @divTrunc(x_rs1, x_rs2);
 }
@@ -579,9 +600,15 @@ fn rem(x_rs1: u64, x_rs2: u64) u64 {
     const s_rs1 = signed(x_rs1);
     const s_rs2 = signed(x_rs2);
     // division by 0
-    if (s_rs2 == 0) return x_rs1;
+    if (s_rs2 == 0) {
+        @branchHint(.unlikely);
+        return x_rs1;
+    }
     // division overflow: intmin / -1
-    if (s_rs1 == std.math.minInt(i64) and s_rs2 == -1) return 0;
+    if (s_rs1 == std.math.minInt(i64) and s_rs2 == -1) {
+        @branchHint(.unlikely);
+        return 0;
+    }
     // perform remainder
     return if (s_rs2 < 0) unsigned(
         @rem(s_rs1, -s_rs2),
@@ -594,9 +621,15 @@ fn remw(w_rs1: u32, w_rs2: u32) u32 {
     const s_rs1 = signed(w_rs1);
     const s_rs2 = signed(w_rs2);
     // division by 0
-    if (s_rs2 == 0) return w_rs1;
+    if (s_rs2 == 0) {
+        @branchHint(.unlikely);
+        return w_rs1;
+    }
     // division overflow: intmin / -1
-    if (s_rs1 == std.math.minInt(i32) and s_rs2 == -1) return 0;
+    if (s_rs1 == std.math.minInt(i32) and s_rs2 == -1) {
+        @branchHint(.unlikely);
+        return 0;
+    }
     // perform remainder
     return if (s_rs2 < 0) unsigned(
         @rem(s_rs1, -s_rs2),

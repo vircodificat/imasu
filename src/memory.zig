@@ -28,9 +28,13 @@ inline fn access_bounded(addr: u64, sz: u64, base: u64, len: u64) bool {
 // instruction fetch is not supported from mmio devices
 pub fn fetch(memory: Memory, addr: u64) !u32 {
     // check alignment
-    if (addr % 4 != 0) return error.InstMisaligned;
+    if (addr % 4 != 0) {
+        @branchHint(.cold);
+        return error.InstMisaligned;
+    }
     // ram
     if (access_bounded(addr, 4, mem_base, memory.mem.len)) {
+        @branchHint(.likely);
         const offset = addr - mem_base;
         const v = std.mem.readInt(u32, memory.mem[offset .. offset + 4][0..4], .little);
         return v;
@@ -48,10 +52,14 @@ fn load(memory: Memory, comptime T: type, addr: u64) !T {
     }
 
     // check alignment
-    if (addr % sz != 0) return error.LoadMisaligned;
+    if (addr % sz != 0) {
+        @branchHint(.unlikely);
+        return error.LoadMisaligned;
+    }
 
     // ram
     if (access_bounded(addr, sz, mem_base, memory.mem.len)) {
+        @branchHint(.likely);
         const offset = addr - mem_base;
         const v = std.mem.readInt(T, memory.mem[offset .. offset + sz][0..sz], .little);
         return v;
@@ -76,10 +84,14 @@ fn store(memory: Memory, comptime T: type, addr: u64, v: T) !void {
     }
 
     // check alignment
-    if (addr % sz != 0) return error.StoreMisaligned;
+    if (addr % sz != 0) {
+        @branchHint(.unlikely);
+        return error.StoreMisaligned;
+    }
 
     // ram
     if (access_bounded(addr, sz, mem_base, memory.mem.len)) {
+        @branchHint(.likely);
         const offset = addr - mem_base;
         std.mem.writeInt(T, memory.mem[offset .. offset + sz][0..sz], v, .little);
         return;
