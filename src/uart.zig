@@ -108,29 +108,27 @@ pub fn run(uart: *UART) void {
     // transmit byte if in buffer
     if (uart.thr) |tx| {
         defer uart.thr = null;
-        var byte: [1]u8 = .{tx};
-        _ = std.posix.write(1, byte[0..1]) catch {};
+        _ = std.posix.write(1, @as([*]const u8, @ptrCast(&tx))[0..1]) catch {};
     }
     // try receiving byte if receive buffer is empty
-    // TODO: make this nicer!
     if (uart.rbr == null) {
         var bytes_pending: c_int = 0;
-        _ = std.posix.system.ioctl(0, 0x541b, @intFromPtr(&bytes_pending));
+        _ = std.posix.system.ioctl(0, std.c.T.FIONREAD, @intFromPtr(&bytes_pending));
         if (bytes_pending > 0) {
-            var rx: [1]u8 = undefined;
-            _ = std.posix.read(0, rx[0..1]) catch {};
-            uart.rbr = rx[0];
+            uart.rbr = undefined;
+            const n = std.posix.read(0, @as([*]u8, @ptrCast(&uart.rbr.?))[0..1]) catch 0;
+            if (n == 0) uart.rbr = null;
         }
     }
     uart.interrupt_target.assert_interrupt_pending(interrupt_num, false);
     // try to interrupt if were allowed to
+    // interrupt if transmit buffer is empty and tx available interrupt enabled
     if (uart.ier.tx_avail and uart.thr == null) {
-        // interrupt if transmit buffer is empty and tx available interrupt enabled
         uart.interrupt_target.assert_interrupt_pending(interrupt_num, true);
         uart.last_interrupt_cause = .tx_avail;
     }
+    // interrupt if we received a byte and rx available interrupt enabled
     if (uart.ier.rx_avail and uart.rbr != null) {
-        // interrupt if we received a byte and rx available interrupt enabled
         uart.last_interrupt_cause = .rx_avail;
         uart.interrupt_target.assert_interrupt_pending(interrupt_num, true);
     }
