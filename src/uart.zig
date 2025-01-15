@@ -115,7 +115,7 @@ pub fn run(uart: *UART) void {
     // TODO: make this nicer!
     if (uart.rbr == null) {
         var bytes_pending: c_int = 0;
-        _ = std.c.ioctl(0, 0x541b, &bytes_pending);
+        _ = std.posix.system.ioctl(0, 0x541b, @intFromPtr(&bytes_pending));
         if (bytes_pending > 0) {
             var rx: [1]u8 = undefined;
             _ = std.posix.read(0, rx[0..1]) catch {};

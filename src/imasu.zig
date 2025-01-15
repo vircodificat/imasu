@@ -88,6 +88,8 @@ pub fn main() !void {
     // set a1 register to start of dtb rom
     hart.x[11] = dtb_dev.mmio_base;
 
+    // standard input setup
+    try stdin_nonblocking();
     try terminal_make_raw();
 
     // main loop
@@ -109,33 +111,32 @@ pub fn main() !void {
     }
 }
 
-const c = @cImport({
-    @cInclude("stdlib.h");
-    @cInclude("fcntl.h");
-    @cInclude("termios.h");
-});
-
-var orig_termios: c.termios = undefined;
-
-// taken from termios(3), glibc manual pages
-fn atexit_restore_term() callconv(.C) void {
-    _ = c.tcsetattr(0, c.TCSANOW, &orig_termios);
+// zig fmt: off
+fn stdin_nonblocking() !void {
+    const flags = try std.posix.fcntl(0, std.c.F.GETFL, 0);
+    _ = try std.posix.fcntl(0, std.c.F.SETFL,
+        flags | @as(u32, @bitCast(std.c.O{ .NONBLOCK = true })),
+    );
 }
+// zig fmt: on
 
-// taken from termios(3), glibc manual pages
 fn terminal_make_raw() !void {
-    // set stdin to non-blocking
-    const flags = try std.posix.fcntl(0, c.F_GETFL, 0);
-    _ = try std.posix.fcntl(0, c.F_SETFL, flags | c.O_NONBLOCK);
-    // set terminal to raw mode
-    _ = c.tcgetattr(0, &orig_termios);
-    var termios = orig_termios;
-    termios.c_iflag &= ~@as(c_uint, c.IGNBRK | c.BRKINT | c.PARMRK | c.ISTRIP | c.INLCR | c.IGNCR | c.IGNCR | c.ICRNL | c.IXON);
-    termios.c_oflag &= ~@as(c_uint, c.OPOST);
-    termios.c_lflag &= ~@as(c_uint, c.ECHO | c.ECHONL | c.ICANON | c.ISIG | c.IEXTEN);
-    termios.c_cflag &= ~@as(c_uint, c.CSIZE | c.PARENB);
-    termios.c_cflag |= c.CS8;
-    _ = c.tcsetattr(0, c.TCSANOW, &termios);
-    // restore the terminal at program termination
-    _ = c.atexit(&atexit_restore_term);
+    var termios = try std.posix.tcgetattr(0);
+    termios.iflag.IGNBRK = false;
+    termios.iflag.BRKINT = false;
+    termios.iflag.PARMRK = false;
+    termios.iflag.ISTRIP = false;
+    termios.iflag.INLCR = false;
+    termios.iflag.IGNCR = false;
+    termios.iflag.ICRNL = false;
+    termios.iflag.IXON = false;
+    termios.oflag.OPOST = false;
+    termios.lflag.ECHO = false;
+    termios.lflag.ECHONL = false;
+    termios.lflag.ICANON = false;
+    termios.lflag.ISIG = false;
+    termios.lflag.IEXTEN = false;
+    termios.cflag.PARENB = false;
+    termios.cflag.CSIZE = .CS8;
+    try std.posix.tcsetattr(0, .NOW, termios);
 }

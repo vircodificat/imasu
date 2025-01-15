@@ -8,8 +8,6 @@ pub fn build(b: *std.Build) void {
         .target = b.standardTargetOptions(.{}),
         .optimize = b.standardOptimizeOption(.{}),
     });
-    exe.linkLibC();
-    b.installArtifact(exe);
 
     // compile devicetree blob to embed in emulator
     const devicetree_cmd = b.addSystemCommand(&.{"dtc"});
@@ -18,6 +16,7 @@ pub fn build(b: *std.Build) void {
     devicetree_cmd.addFileArg(b.path("src/devicetree/imasu64.dtb"));
     exe.step.dependOn(&devicetree_cmd.step);
 
+    b.installArtifact(exe);
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
