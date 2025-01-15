@@ -134,7 +134,7 @@ pub fn run(uart: *UART) void {
     }
 }
 
-pub fn init() UART {
+pub fn create() UART {
     return UART{
         .interrupt_target = undefined,
         .rbr = null,

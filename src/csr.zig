@@ -87,7 +87,7 @@ const csr_mhartid    = 0xf14;
 const csr_mconfigptr = 0xf15;
 // zig fmt: on
 
-pub fn init() CSRs {
+pub fn create() CSRs {
     return CSRs{
         .mepc = 0,
         .mtval = 0,

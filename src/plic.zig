@@ -121,7 +121,7 @@ pub fn assert_interrupt_pending(plic: *PLIC, interrupt_num: u32, v: bool) void {
     return;
 }
 
-pub fn init() PLIC {
+pub fn create() PLIC {
     return PLIC{
         .pending = .{false} ** n_interrupts,
         .ctx0_enable = .{false} ** n_interrupts,

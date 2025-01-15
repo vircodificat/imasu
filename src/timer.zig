@@ -97,7 +97,7 @@ fn timer_check(clint: *const CLINT) void {
     clint.interrupt_target.assert_interrupt_pending(.Timer, clint.mtime > clint.mtimecmp);
 }
 
-pub fn init() CLINT {
+pub fn create() CLINT {
     return CLINT{
         .interrupt_target = undefined,
         .mtime = 0,

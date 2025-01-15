@@ -28,8 +28,8 @@ pub fn main() !void {
     var ram = try a.alloc(u8, mem_sz);
     @memset(ram, 0);
     @memcpy(ram[0..file_bytes.len], file_bytes);
-    var mem = Memory.init(ram);
-    var hart = Hart.init();
+    var mem = Memory.create(ram);
+    var hart = Hart.create();
     hart.mem = &mem;
 
     var cycle: usize = 0;

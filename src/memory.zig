@@ -10,7 +10,7 @@ devices: []*Device, // mmio devices
 
 pub const mem_base: u64 = 0x8000_0000; // lowest address of ram
 
-pub fn init(mem: []u8) Memory {
+pub fn create(mem: []u8) Memory {
     std.debug.assert(mem.len % 4096 == 0);
     return Memory{
         .mem = mem,

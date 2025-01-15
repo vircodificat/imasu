@@ -33,13 +33,13 @@ pub fn main() !void {
     @memset(ram, 0);
     @memcpy(ram[0..image.len], image);
     // create memory with ram
-    var mem = Memory.init(ram);
+    var mem = Memory.create(ram);
 
     // create a hart
-    var hart = Hart.init();
+    var hart = Hart.create();
 
     // create CLINT timer device
-    var clint = CLINT.init();
+    var clint = CLINT.create();
     var clint_dev = Device{
         .kind = .{ .clint = &clint },
         .mmio_base = 0x1100_0000,
@@ -47,7 +47,7 @@ pub fn main() !void {
     };
 
     // create PLIC device
-    var plic = PLIC.init();
+    var plic = PLIC.create();
     var plic_dev = Device{
         .kind = .{ .plic = &plic },
         .mmio_base = 0x0c00_0000,
@@ -55,7 +55,7 @@ pub fn main() !void {
     };
 
     // create UART device
-    var uart = UART.init();
+    var uart = UART.create();
     var uart_dev = Device{
         .kind = .{ .uart = &uart },
         .mmio_base = 0x1000_0000,

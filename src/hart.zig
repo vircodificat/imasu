@@ -25,11 +25,11 @@ res: ?struct { // reservation set for lr/sc
 
 mem: *Memory, // handle to main memory
 
-pub fn init() Hart {
+pub fn create() Hart {
     return Hart{
         .x = .{0} ** 32,
         .pc = Memory.mem_base,
-        .csrs = CSRs.init(),
+        .csrs = CSRs.create(),
         .priv = .M,
         .res = null,
         .mem = undefined,
