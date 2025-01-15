@@ -182,22 +182,3 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
     }
     return;
 }
-
-pub fn exception_to_xcause_csr_value(err: Exception) xlen {
-    return switch (err) {
-        Exception.InstMisaligned => 0,
-        Exception.InstAccessFault => 1,
-        Exception.IllegalInstruction => 2,
-        Exception.Breakpoint => 3,
-        Exception.LoadMisaligned => 4,
-        Exception.LoadAccessFault => 5,
-        Exception.StoreMisaligned => 6,
-        Exception.StoreAccessFault => 7,
-        Exception.ECallUser => 8,
-        Exception.ECallSupervisor => 9,
-        Exception.ECallMachine => 11,
-        Exception.InstPageFault => 12,
-        Exception.LoadPageFault => 13,
-        Exception.StorePageFault => 15,
-    };
-}

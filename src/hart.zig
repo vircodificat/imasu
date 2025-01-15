@@ -36,6 +36,7 @@ pub fn create() Hart {
     };
 }
 
+// lower word of register
 inline fn word(v: xlen) u32 {
     return @truncate(v);
 }
@@ -59,21 +60,6 @@ inline fn sext_to_xlen(value: anytype) xlen {
     return @bitCast(@as(signed_xlen, signed(value)));
 }
 
-pub const InterruptSource = enum {
-    Software,
-    Timer,
-    External,
-};
-
-fn dump_exception_to_stderr(hart: *const Hart, err: Exception, tval: xlen) void {
-    const stderr = std.io.getStdErr().writer();
-    var buffer: [4096]u8 = undefined;
-    var buf = debug.dump_exception(err, tval, &buffer) catch unreachable;
-    _ = stderr.write(buf) catch {};
-    buf = debug.dump_registers(hart, &buffer) catch unreachable;
-    _ = stderr.write(buf) catch {};
-}
-
 // perform a fetch-decode-execute cycle of the hart
 pub fn step(hart: *Hart) void {
     // fetch instruction
@@ -93,7 +79,7 @@ pub fn step(hart: *Hart) void {
     };
     // execute instruction
     hart.execute(instruction) catch |err| {
-        const tval = switch (err) {
+        const xtval = switch (err) {
             // load/store exceptions store the faulty virtual address in xtval
             Exception.LoadMisaligned,
             Exception.StoreMisaligned,
@@ -109,10 +95,53 @@ pub fn step(hart: *Hart) void {
             // everything else is already handled or can be 0
             else => 0,
         };
-        hart.trap_on_exception(err, tval);
+        hart.trap_on_exception(err, xtval);
         return;
     };
 }
+
+// if instruction execution causes an exception related to an address, such as
+// a load/store access fault/page fault/misaligned fault, then the trap value register
+// is set to this faulting virtual address
+fn faulty_virtual_addr(hart: *Hart, instruction: Instruction) xlen {
+    return switch (instruction) {
+        .AMO => |inst| hart.x[inst.rs1],
+        .I => |inst| switch (inst.opcode) {
+            .jalr => hart.x[inst.rs1] +% inst.imm & ~@as(xlen, 0b1),
+            .lb, .lh, .lw, .ld, .lbu, .lhu, .lwu => hart.x[inst.rs1] +% inst.imm,
+            else => unreachable,
+        },
+        .S => |inst| hart.x[inst.rs1] +% inst.imm,
+        else => unreachable,
+    };
+}
+
+// on an exception, the trap cause register is set to a value
+// depending on the type of exception
+fn exception_to_xcause_csr_value(err: Exception) xlen {
+    return switch (err) {
+        Exception.InstMisaligned => 0,
+        Exception.InstAccessFault => 1,
+        Exception.IllegalInstruction => 2,
+        Exception.Breakpoint => 3,
+        Exception.LoadMisaligned => 4,
+        Exception.LoadAccessFault => 5,
+        Exception.StoreMisaligned => 6,
+        Exception.StoreAccessFault => 7,
+        Exception.ECallUser => 8,
+        Exception.ECallSupervisor => 9,
+        Exception.ECallMachine => 11,
+        Exception.InstPageFault => 12,
+        Exception.LoadPageFault => 13,
+        Exception.StorePageFault => 15,
+    };
+}
+
+pub const InterruptSource = enum {
+    Software,
+    Timer,
+    External,
+};
 
 // set the hart's interrupt pending bit for some source
 pub fn assert_interrupt_pending(hart: *Hart, source: InterruptSource, v: bool) void {
@@ -123,6 +152,7 @@ pub fn assert_interrupt_pending(hart: *Hart, source: InterruptSource, v: bool) v
     }
 }
 
+// try to take a trap caused by an interrupt
 pub fn try_take_interrupt(hart: *Hart) void {
     // if the global mie bit is disabled, do not take any interrupts
     if (hart.csrs.mstatus.mie == false) return;
@@ -143,6 +173,7 @@ pub fn try_take_interrupt(hart: *Hart) void {
     }
 }
 
+// take a trap caused by an interrupt
 fn trap_on_interrupt(hart: *Hart, source: InterruptSource) void {
     assert(hart.csrs.mstatus.mie == true);
     const xcause_exception_code: xlen = switch (source) {
@@ -169,7 +200,8 @@ fn trap_on_interrupt(hart: *Hart, source: InterruptSource) void {
     return;
 }
 
-fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
+// take a trap caused by an exception
+fn trap_on_exception(hart: *Hart, err: Exception, xtval: xlen) void {
     // TODO: S-mode delegation when S-mode is implemented
 
     // push mie to mpie, mie becomes false
@@ -179,8 +211,8 @@ fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
     hart.csrs.mstatus.mpp = hart.priv;
     hart.priv = .M;
     // store exception cause and value
-    hart.csrs.mtval = tval;
-    hart.csrs.mcause = CSRs.exception_to_xcause_csr_value(err);
+    hart.csrs.mtval = xtval;
+    hart.csrs.mcause = exception_to_xcause_csr_value(err);
     // store pc into mepc, set pc to trap vector base
     // as this is the trap procedure for exceptions not interrupts,
     // we always go to the base address
@@ -189,6 +221,7 @@ fn trap_on_exception(hart: *Hart, err: Exception, tval: xlen) void {
     return;
 }
 
+// perform 'mret'
 fn mret(hart: *Hart) !void {
     if (hart.priv != .M) return error.IllegalInstruction;
     if (hart.csrs.mstatus.mpp == .S) unreachable;
@@ -201,19 +234,6 @@ fn mret(hart: *Hart) !void {
     // set the program counter to mepc
     hart.pc = hart.csrs.mepc;
     return;
-}
-
-fn faulty_virtual_addr(hart: *Hart, instruction: Instruction) xlen {
-    return switch (instruction) {
-        .AMO => |inst| hart.x[inst.rs1],
-        .I => |inst| switch (inst.opcode) {
-            .jalr => hart.x[inst.rs1] +% inst.imm & ~@as(xlen, 0b1),
-            .lb, .lh, .lw, .ld, .lbu, .lhu, .lwu => hart.x[inst.rs1] +% inst.imm,
-            else => unreachable,
-        },
-        .S => |inst| hart.x[inst.rs1] +% inst.imm,
-        else => unreachable,
-    };
 }
 
 fn execute(hart: *Hart, instruction: Instruction) Exception!void {
