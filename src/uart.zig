@@ -112,13 +112,9 @@ pub fn run(uart: *UART) void {
     }
     // try receiving byte if receive buffer is empty
     if (uart.rbr == null) {
-        var bytes_pending: c_int = 0;
-        _ = std.posix.system.ioctl(0, std.c.T.FIONREAD, @intFromPtr(&bytes_pending));
-        if (bytes_pending > 0) {
-            uart.rbr = undefined;
-            const n = std.posix.read(0, @as([*]u8, @ptrCast(&uart.rbr.?))[0..1]) catch 0;
-            if (n == 0) uart.rbr = null;
-        }
+        var rx: [1]u8 = undefined;
+        const n = std.posix.read(0, rx[0..1]) catch 0;
+        if (n != 0) uart.rbr = rx[0];
     }
     uart.interrupt_target.assert_interrupt_pending(interrupt_num, false);
     // try to interrupt if were allowed to
