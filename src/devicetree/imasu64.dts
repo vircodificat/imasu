@@ -30,6 +30,13 @@
 		riscv,ndev = <1>; // number of external interrupts, not counting non-existing source 0
 	};
 
+	poweroff {
+		compatible = "syscon-poweroff";
+		value = <0xDEAD>;
+		offset = <0x0>;
+		regmap = <&syscon>;
+	};
+
 	cpus {
 		#address-cells = <0x01>;
 		#size-cells = <0x00>;
@@ -62,15 +69,20 @@
 		uart@10000000 { // ns8250 uart at 0x10000000
 			interrupts-extended = <&plic 0x01>;
 			clock-frequency = <115200>;
-			reg = <0x00 0x10000000 0x00 0x8>;
+			reg = <0x0 0x10000000 0x0 0x8>;
 			compatible = "ns8250";
 		};
 
 		clint@11000000 { // clint at 0x11000000
 			// 0x3 = M-mode software interrupt, 0x7 = M-mode timer interrupt
 			interrupts-extended = <&cpu0intc 0x03 &cpu0intc 0x07>;
-			reg = <0x00 0x11000000 0x00 0x10000>;
+			reg = <0x0 0x11000000 0x0 0x10000>;
 			compatible = "sifive,clint0", "riscv,clint0";
+		};
+
+		syscon: syscon@11100000 {
+		    reg = <0x0 0x11100000 0x0 0x4>;
+			compatible = "syscon";
 		};
 	};
 };

@@ -3,6 +3,7 @@ const CLINT = @import("timer.zig");
 const PLIC = @import("plic.zig");
 const UART = @import("uart.zig");
 const ROM = @import("rom.zig");
+const Syscon = @import("syscon.zig");
 const Memory = @import("memory.zig");
 const Hart = @import("hart.zig");
 const std = @import("std");
@@ -62,6 +63,14 @@ pub fn main() !void {
         .mmio_len = UART.mmio_len,
     };
 
+    var syscon = Syscon{};
+    // create Syscon
+    var syscon_dev = Device{
+        .kind = .{ .syscon = &syscon },
+        .mmio_base = 0x1110_0000,
+        .mmio_len = Syscon.mmio_len,
+    };
+
     const dtb_sz = 64 * 1024;
     var dtb: [dtb_sz]u8 = .{0} ** dtb_sz;
     @memcpy(dtb[0..devicetree.len], devicetree);
@@ -81,7 +90,13 @@ pub fn main() !void {
     uart.interrupt_target = &plic;
 
     // list of all mmio devices
-    var mmio_dev_list = [_]*Device{ &clint_dev, &plic_dev, &uart_dev, &dtb_dev };
+    var mmio_dev_list = [_]*Device{
+        &clint_dev,
+        &plic_dev,
+        &uart_dev,
+        &dtb_dev,
+        &syscon_dev,
+    };
     // attach them to main memory
     mem.devices = mmio_dev_list[0..mmio_dev_list.len];
 
