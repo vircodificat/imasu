@@ -2,7 +2,7 @@
 
 const Exception = @import("exception.zig").Exception;
 const Privilege = @import("priv.zig").Privilege;
-const CLINT = @import("timer.zig");
+const CLINT = @import("devices/clint.zig");
 const xlen = @import("hart.zig").xlen;
 
 const CSRs = @This();

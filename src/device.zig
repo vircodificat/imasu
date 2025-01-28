@@ -1,10 +1,10 @@
 // MMIO-accessible devices
 
-const ROM = @import("rom.zig");
-const CLINT = @import("timer.zig");
-const PLIC = @import("plic.zig");
-const UART = @import("uart.zig");
-const Syscon = @import("syscon.zig");
+const ROM = @import("devices/rom.zig");
+const CLINT = @import("devices/clint.zig");
+const PLIC = @import("devices/plic.zig");
+const UART = @import("devices/uart.zig");
+const Syscon = @import("devices/syscon.zig");
 const std = @import("std");
 
 const Device = @This();

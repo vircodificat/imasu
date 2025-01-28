@@ -1,6 +1,6 @@
 // read-only memory region
 
-const Exception = @import("exception.zig").Exception;
+const Exception = @import("../exception.zig").Exception;
 const std = @import("std");
 
 const ROM = @This();

@@ -1,9 +1,9 @@
 // the CLINT is a timer device that delivers timer and software interrupts
-
+// https://www.kernel.org/doc/Documentation/devicetree/bindings/timer/sifive%2Cclint.yaml
 // https://sifive.cdn.prismic.io/sifive%2Fc89f6e5a-cf9e-44c3-a3db-04420702dcc1_sifive+e31+manual+v19.08.pdf
 
-const Exception = @import("exception.zig").Exception;
-const Hart = @import("hart.zig");
+const Exception = @import("../exception.zig").Exception;
+const Hart = @import("../hart.zig");
 const std = @import("std");
 const Timer = std.time.Timer;
 

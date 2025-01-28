@@ -1,9 +1,8 @@
 // NS8250 UART
-
 // http://byterunner.com/16550.html
 
-const Exception = @import("exception.zig").Exception;
-const Hart = @import("hart.zig");
+const Exception = @import("../exception.zig").Exception;
+const Hart = @import("../hart.zig");
 const PLIC = @import("plic.zig");
 const std = @import("std");
 

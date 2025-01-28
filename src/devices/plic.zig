@@ -1,7 +1,7 @@
 // Platform-Level Interrupt Controller
 
-const Exception = @import("exception.zig").Exception;
-const Hart = @import("hart.zig");
+const Exception = @import("../exception.zig").Exception;
+const Hart = @import("../hart.zig");
 const std = @import("std");
 const assert = std.debug.assert;
 
