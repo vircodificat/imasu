@@ -7,6 +7,7 @@ const Syscon = @import("devices/syscon.zig");
 const Memory = @import("memory.zig");
 const Hart = @import("hart.zig");
 const std = @import("std");
+const eql = std.mem.eql;
 
 const dtb_sz = 64 * 1024;
 const devicetree = @embedFile("devicetree/imasu64.dtb");
@@ -19,19 +20,45 @@ const dtb_buffer: [dtb_sz]u8 = dtb: {
 // TODO: accept memory size on command line
 const mem_sz = 256 * 1024 * 1024;
 
+const help_text =
+    \\imasu64 is a RISC-V 64-bit System Emulator
+    \\(isa string: rv64imau_zicsr_zifencei)
+    \\
+    \\usage: imasu64 <image> [ -h | --help ]
+    \\
+    \\image is a binary image to run on the emulator
+    \\
+    \\-h | --help: print this help text
+    \\
+;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const a = gpa.allocator();
     const args = try std.process.argsAlloc(a);
     defer std.process.argsFree(a, args);
 
-    if (args.len != 2) {
+    const stdout = std.io.getStdOut().writer();
+
+    var image_path: ?[*:0]u8 = null;
+
+    for (args[1..args.len]) |arg| {
+        if (eql(u8, arg, "-h") or eql(u8, arg, "--help")) {
+            _ = stdout.write(help_text) catch {};
+            std.process.exit(0);
+        } else {
+            image_path = arg;
+        }
+    }
+
+    if (image_path == null) {
+        const text = "no binary image provided, run with -h or --help for usage";
+        _ = stdout.write(text) catch {};
         std.process.exit(1);
     }
 
-
     const image = blk: {
-        const file = try std.fs.cwd().openFileZ(args[1], .{});
+        const file = try std.fs.cwd().openFileZ(image_path.?, .{});
         defer file.close();
         break :blk try file.readToEndAlloc(a, mem_sz);
     };
