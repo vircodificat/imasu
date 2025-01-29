@@ -8,7 +8,16 @@ const Memory = @import("memory.zig");
 const Hart = @import("hart.zig");
 const std = @import("std");
 
+const dtb_sz = 64 * 1024;
 const devicetree = @embedFile("devicetree/imasu64.dtb");
+const dtb_buffer: [dtb_sz]u8 = dtb: {
+    var buf: [dtb_sz]u8 = .{0} ** dtb_sz;
+    @memcpy(buf[0..devicetree.len], devicetree);
+    break :dtb buf;
+};
+
+// TODO: accept memory size on command line
+const mem_sz = 256 * 1024 * 1024;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -20,8 +29,6 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    // TODO: accept memory size on command line
-    const mem_sz = 256 * 1024 * 1024;
 
     const image = blk: {
         const file = try std.fs.cwd().openFileZ(args[1], .{});
@@ -33,6 +40,7 @@ pub fn main() !void {
     var ram = try a.alloc(u8, mem_sz);
     @memset(ram, 0);
     @memcpy(ram[0..image.len], image);
+    a.free(image);
     // create memory with ram
     var mem = Memory.create(ram);
 
@@ -71,11 +79,8 @@ pub fn main() !void {
         .mmio_len = Syscon.mmio_len,
     };
 
-    const dtb_sz = 64 * 1024;
-    var dtb: [dtb_sz]u8 = .{0} ** dtb_sz;
-    @memcpy(dtb[0..devicetree.len], devicetree);
     // create DTB ROM device with dtb bytes
-    var dtb_rom = ROM{ .mem = &dtb };
+    var dtb_rom = ROM{ .mem = &dtb_buffer };
     var dtb_dev = Device{
         .kind = .{ .rom = &dtb_rom },
         .mmio_base = 0x7000_0000,

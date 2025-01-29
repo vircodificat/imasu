@@ -5,7 +5,7 @@ const std = @import("std");
 
 const ROM = @This();
 
-mem: []u8, // read-only memory stored by this device
+mem: []const u8, // read-only memory stored by this device
 
 pub fn mmio_reg_read(rom: *ROM, comptime T: type, reg_addr: u64) !T {
     // memory calling this has already checked that the
