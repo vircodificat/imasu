@@ -164,6 +164,15 @@ pub fn main() !void {
         var cycle: usize = 0;
         while (cycle < 1024) : (cycle += 1) {
             hart.step();
+            if (hart.wfi) {
+                @branchHint(.unlikely);
+                // on wfi, halt until we have a timeout or receive an interrupt
+                // and then try taking one
+                hart.mutex.lock();
+                hart.cond.timedWait(&hart.mutex, std.time.ns_per_ms) catch {};
+                hart.mutex.unlock();
+                hart.try_take_interrupt();
+            }
         }
     }
 }

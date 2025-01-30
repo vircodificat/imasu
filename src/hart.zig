@@ -23,6 +23,10 @@ res: ?struct { // reservation set for lr/sc
     double: bool, // reservation is for a double or word
 },
 
+wfi: bool, // called wfi last instruction
+mutex: std.Thread.Mutex,
+cond: std.Thread.Condition,
+
 mem: *Memory, // handle to main memory
 
 pub fn create() Hart {
@@ -33,6 +37,9 @@ pub fn create() Hart {
         .priv = .M,
         .res = null,
         .mem = undefined,
+        .wfi = false,
+        .mutex = std.Thread.Mutex{},
+        .cond = std.Thread.Condition{},
     };
 }
 
@@ -62,6 +69,7 @@ inline fn sext_to_xlen(value: anytype) xlen {
 
 // perform a fetch-decode-execute cycle of the hart
 pub fn step(hart: *Hart) void {
+    hart.wfi = false;
     // fetch instruction
     const inst_bits = hart.mem.fetch(hart.pc) catch |err| {
         // on instruction address misaligned or instruction fetch access/page fault,
@@ -153,6 +161,7 @@ pub fn set_interrupt_pending(hart: *Hart, source: InterruptSource, v: bool) void
         .Timer => hart.csrs.mip.mtip = v,
         .External => hart.csrs.mip.meip = v,
     }
+    if (v == true) hart.cond.signal();
 }
 
 // try to take a trap caused by an interrupt
@@ -510,8 +519,9 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     try hart.mret();
                     return;
                 },
-                .wfi => { // no-op
+                .wfi => {
                     hart.pc +%= 4;
+                    hart.wfi = true;
                     return;
                 },
                 .ebreak => return Exception.Breakpoint,
