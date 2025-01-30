@@ -24,11 +24,13 @@ const help_text =
     \\imasu64 is a RISC-V 64-bit System Emulator
     \\(isa string: rv64imau_zicsr_zifencei)
     \\
-    \\usage: imasu64 <image> [ -h | --help ]
+    \\usage: imasu64 <image> [ --ctrlc ] [ -h, --help ]
     \\
     \\image is a binary image to run on the emulator
     \\
-    \\-h | --help: print this help text
+    \\--ctrlc     allow Ctrl+C to be sent through stdin,
+    \\            instead of terminating the emulator
+    \\-h, --help  print this help text
     \\
 ;
 
@@ -41,14 +43,18 @@ pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
     var image_path: ?[*:0]u8 = null;
+    var allow_ctrl_c: bool = false;
 
     for (args[1..args.len]) |arg| {
         if (eql(u8, arg, "-h") or eql(u8, arg, "--help")) {
             _ = stdout.write(help_text) catch {};
             std.process.exit(0);
-        } else {
-            image_path = arg;
         }
+        if (eql(u8, arg, "--ctrlc")) {
+            allow_ctrl_c = true;
+            continue;
+        }
+        image_path = arg;
     }
 
     if (image_path == null) {
@@ -137,7 +143,7 @@ pub fn main() !void {
 
     // standard input setup
     try stdin_nonblocking();
-    try terminal_make_raw();
+    try terminal_make_raw(allow_ctrl_c);
 
     // main loop
     while (true) {
@@ -167,7 +173,7 @@ fn stdin_nonblocking() !void {
 }
 // zig fmt: on
 
-fn terminal_make_raw() !void {
+fn terminal_make_raw(allow_ctrl_c: bool) !void {
     var termios = try std.posix.tcgetattr(0);
     termios.iflag.IGNBRK = false;
     termios.iflag.BRKINT = false;
@@ -181,9 +187,9 @@ fn terminal_make_raw() !void {
     termios.lflag.ECHO = false;
     termios.lflag.ECHONL = false;
     termios.lflag.ICANON = false;
-    termios.lflag.ISIG = false;
     termios.lflag.IEXTEN = false;
     termios.cflag.PARENB = false;
     termios.cflag.CSIZE = .CS8;
+    if (!allow_ctrl_c) termios.lflag.ISIG = false;
     try std.posix.tcsetattr(0, .NOW, termios);
 }
