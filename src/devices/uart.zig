@@ -5,6 +5,8 @@ const Exception = @import("../exception.zig").Exception;
 const Hart = @import("../hart.zig");
 const PLIC = @import("plic.zig");
 const std = @import("std");
+const Mutex = std.Thread.Mutex;
+const Condition = std.Thread.Condition;
 
 const UART = @This();
 
@@ -26,6 +28,8 @@ lcr: struct {
 // scr not implemented (does not exist)
 // dll, dlm not implemented, but we honour the dll/dlm enable bit
 
+mutex: Mutex,
+cond: Condition,
 
 // interrupt controller through which to route the interrupt
 interrupt_target: *PLIC,
@@ -43,6 +47,11 @@ const reg_msr = 0x6;
 pub const mmio_len = 0x8;
 
 pub fn mmio_reg_read(uart: *UART, comptime T: type, reg_addr: u64) !T {
+    uart.cond.signal();
+    uart.mutex.lock();
+    defer uart.mutex.unlock();
+    errdefer uart.mutex.unlock();
+
     if (comptime T != u8) return Exception.LoadAccessFault;
     switch (reg_addr) {
         reg_rbr_thr => {
@@ -83,6 +92,11 @@ pub fn mmio_reg_read(uart: *UART, comptime T: type, reg_addr: u64) !T {
 }
 
 pub fn mmio_reg_write(uart: *UART, comptime T: type, reg_addr: u64, v: T) !void {
+    uart.cond.signal();
+    uart.mutex.lock();
+    defer uart.mutex.unlock();
+    errdefer uart.mutex.unlock();
+
     if (comptime T != u8) return Exception.StoreAccessFault;
     switch (reg_addr) {
         reg_rbr_thr => {
@@ -106,7 +120,7 @@ pub fn mmio_reg_write(uart: *UART, comptime T: type, reg_addr: u64, v: T) !void 
     return;
 }
 
-pub fn run(uart: *UART) void {
+fn run(uart: *UART) void {
     // transmit byte if in buffer
     if (uart.thr) |tx| {
         defer uart.thr = null;
@@ -128,7 +142,36 @@ pub fn run(uart: *UART) void {
     // interrupt if we received a byte and rx available interrupt enabled
     if (uart.ier.rx_avail and uart.rbr != null) {
         uart.last_interrupt_cause = .rx_avail;
-        uart.interrupt_target.assert_interrupt_pending(interrupt_num, true);
+        uart.interrupt_target.set_interrupt_pending(interrupt_num, true);
+    }
+}
+
+pub fn task(uart: *UART) void {
+    var uart_timer = std.time.Timer.start() catch unreachable;
+    const period = 10 * std.time.ns_per_us;
+
+    while (true) {
+        uart.mutex.lock();
+        defer uart.mutex.unlock();
+
+        // run the UART
+        uart.run();
+
+        const time = uart_timer.read();
+        if (time > period) {
+            uart_timer.reset();
+            continue;
+        }
+        // if time until the UART is supposed to run again is above some threshold,
+        // put the thread to sleep until we reach that time, or one of the registers
+        // is written to, waking the thread back up
+        const delta = period - time;
+        if (delta > period / 10) {
+            uart.cond.timedWait(&uart.mutex, delta) catch {};
+        }
+        // busy wait the rest of the time
+        while (uart_timer.read() < period) {}
+        uart_timer.reset();
     }
 }
 
@@ -145,6 +188,8 @@ pub fn create() UART {
         .lcr = .{
             .dl_enable = false,
         },
+        .mutex = Mutex{},
+        .cond = Condition{},
     };
 }
 

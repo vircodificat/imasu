@@ -145,22 +145,26 @@ pub fn main() !void {
     try stdin_nonblocking();
     try terminal_make_raw(allow_ctrl_c);
 
-    // main loop
+    // spawn the thread that runs the timer
+    var clint_thread = try std.Thread.spawn(.{}, CLINT.task, .{&clint});
+    clint_thread.detach();
+
+    // spawn the thread that runs the PLIC
+    var plic_thread = try std.Thread.spawn(.{}, PLIC.task, .{&plic});
+    plic_thread.detach();
+
+    // spawn the thread that runs the UART
+    var uart_thread = try std.Thread.spawn(.{}, UART.task, .{&uart});
+    uart_thread.detach();
+
+    // main loop for the hart
     while (true) {
-        // run plic
-        plic.run();
-        // check for interrupts to the hart
         hart.try_take_interrupt();
-        // run hart
+        // run at most some amount of cycles before checking for interrupts
         var cycle: usize = 0;
         while (cycle < 1024) : (cycle += 1) {
             hart.step();
         }
-        // run timer
-        clint.run();
-        // run UART
-        // TODO: its own timing loop
-        uart.run();
     }
 }
 

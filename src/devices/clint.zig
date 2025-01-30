@@ -6,6 +6,8 @@ const Exception = @import("../exception.zig").Exception;
 const Hart = @import("../hart.zig");
 const std = @import("std");
 const Timer = std.time.Timer;
+const Mutex = std.Thread.Mutex;
+const Condition = std.Thread.Condition;
 
 const CLINT = @This();
 
@@ -14,6 +16,9 @@ mtimecmp: u64, // timer compare value
 
 timer: Timer,
 interrupt_target: *Hart, // hart that this CLINT interrupts
+
+mutex: Mutex,
+cond: Condition,
 
 const reg_mswi = 0x0; // 4 bytes, lowest bit reads/writes target hart's msip bit
 const reg_mtime = 0xbff8; // 8 bytes, reads value of the timer
@@ -44,6 +49,10 @@ pub fn mmio_reg_read(clint: *CLINT, comptime T: type, reg_addr: u64) !T {
 }
 
 pub fn mmio_reg_write(clint: *CLINT, comptime T: type, reg_addr: u64, v: T) !void {
+    clint.cond.signal(); // wake the sleeping CLINT thread
+    clint.mutex.lock(); // acquire mutex which we then release
+    defer clint.mutex.unlock();
+    errdefer clint.mutex.unlock();
     switch (T) {
         u64 => switch (reg_addr) {
             reg_mtimecmp => clint.mtimecmp = v,
@@ -60,16 +69,27 @@ pub fn mmio_reg_write(clint: *CLINT, comptime T: type, reg_addr: u64, v: T) !voi
     }
 }
 
-// increment the timer value and check whether to assert/deassert an interrupt
-pub fn run(clint: *CLINT) void {
-    const delta = clint.timer.lap();
-    clint.mtime += delta;
-    clint.timer_check();
-}
+// CLINT thread task
+pub fn task(clint: *CLINT) void {
+    while (true) {
+        clint.mutex.lock();
+        defer clint.mutex.unlock();
 
-// if mtime > mtimecmp, assert an interrupt
-fn timer_check(clint: *const CLINT) void {
-    clint.interrupt_target.set_interrupt_pending(.Timer, clint.mtime > clint.mtimecmp);
+        // run the timer by incrementing mtime, and checking against mtimecmp
+        // to set the mtip bit
+        const tick = clint.timer.lap();
+        clint.mtime += tick;
+        clint.interrupt_target.set_interrupt_pending(.Timer, clint.mtime > clint.mtimecmp);
+
+        if (clint.mtimecmp < clint.mtime) continue;
+        // if the difference between now and mtimecmp is above some threshold,
+        // put the thread to sleep until we reach that time, or one of the registers
+        // is written to, waking the thread back up
+        const delta_ns = clint.mtimecmp - clint.mtime;
+        if (delta_ns > 10 * std.time.ns_per_us) {
+            clint.cond.timedWait(&clint.mutex, delta_ns) catch {};
+        }
+    }
 }
 
 pub fn create() CLINT {
@@ -78,5 +98,7 @@ pub fn create() CLINT {
         .mtime = 0,
         .mtimecmp = 0,
         .timer = undefined,
+        .mutex = Mutex{},
+        .cond = Condition{},
     };
 }
