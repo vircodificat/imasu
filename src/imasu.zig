@@ -58,7 +58,7 @@ pub fn main() !void {
     }
 
     if (image_path == null) {
-        const text = "no binary image provided, run with -h or --help for usage";
+        const text = "no binary image provided, run with -h or --help for usage\n";
         _ = stdout.write(text) catch {};
         std.process.exit(1);
     }
@@ -124,7 +124,7 @@ pub fn main() !void {
     clint.timer = try std.time.Timer.start();
     hart.csrs.time_csr_timer = &clint;
     clint.interrupt_target = &hart;
-    plic.ctx0_interrupt_target = &hart;
+    plic.ctx0 = &hart;
     uart.interrupt_target = &plic;
 
     // list of all mmio devices
@@ -203,6 +203,6 @@ fn terminal_make_raw(allow_ctrl_c: bool) !void {
     termios.lflag.IEXTEN = false;
     termios.cflag.PARENB = false;
     termios.cflag.CSIZE = .CS8;
-    if (!allow_ctrl_c) termios.lflag.ISIG = false;
+    if (allow_ctrl_c) termios.lflag.ISIG = false;
     try std.posix.tcsetattr(0, .NOW, termios);
 }
