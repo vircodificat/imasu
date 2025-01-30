@@ -94,7 +94,7 @@ pub fn run(clint: *CLINT) void {
 
 // if mtime > mtimecmp, assert an interrupt
 fn timer_check(clint: *const CLINT) void {
-    clint.interrupt_target.assert_interrupt_pending(.Timer, clint.mtime > clint.mtimecmp);
+    clint.interrupt_target.set_interrupt_pending(.Timer, clint.mtime > clint.mtimecmp);
 }
 
 pub fn create() CLINT {

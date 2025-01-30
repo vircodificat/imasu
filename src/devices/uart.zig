@@ -26,7 +26,10 @@ lcr: struct {
 // scr not implemented (does not exist)
 // dll, dlm not implemented, but we honour the dll/dlm enable bit
 
+
+// interrupt controller through which to route the interrupt
 interrupt_target: *PLIC,
+// interrupt number on the interrupt controller
 const interrupt_num = 1;
 
 const reg_rbr_thr = 0x0;
@@ -115,11 +118,11 @@ pub fn run(uart: *UART) void {
         const n = std.posix.read(0, rx[0..1]) catch 0;
         if (n != 0) uart.rbr = rx[0];
     }
-    uart.interrupt_target.assert_interrupt_pending(interrupt_num, false);
+    uart.interrupt_target.set_interrupt_pending(interrupt_num, false);
     // try to interrupt if were allowed to
     // interrupt if transmit buffer is empty and tx available interrupt enabled
     if (uart.ier.tx_avail and uart.thr == null) {
-        uart.interrupt_target.assert_interrupt_pending(interrupt_num, true);
+        uart.interrupt_target.set_interrupt_pending(interrupt_num, true);
         uart.last_interrupt_cause = .tx_avail;
     }
     // interrupt if we received a byte and rx available interrupt enabled

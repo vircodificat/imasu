@@ -20,7 +20,7 @@ ctx0_enable: [n_interrupts]bool,
 ctx0_priority_threshold: u1,
 
 // hart that this PLIC is connected to
-ctx0_interrupt_target: *Hart,
+ctx0: *Hart,
 
 // interrupt priority register
 // we implement all interrupts with fixed priority of 1
@@ -108,14 +108,14 @@ pub fn run(plic: *PLIC) void {
     var interrupt: u32 = 1;
     while (interrupt < n_interrupts) : (interrupt += 1) {
         if (plic.pending[interrupt] and plic.ctx0_enable[interrupt] and 1 > plic.ctx0_priority_threshold) {
-            plic.ctx0_interrupt_target.assert_interrupt_pending(.External, true);
+            plic.ctx0.set_interrupt_pending(.External, true);
             return;
         }
     }
-    plic.ctx0_interrupt_target.assert_interrupt_pending(.External, false);
+    plic.ctx0.set_interrupt_pending(.External, false);
 }
 
-pub fn assert_interrupt_pending(plic: *PLIC, interrupt_num: u32, v: bool) void {
+pub fn set_interrupt_pending(plic: *PLIC, interrupt_num: u32, v: bool) void {
     assert(interrupt_num > 0 and interrupt_num < n_interrupts);
     plic.pending[interrupt_num] = v;
     return;
@@ -126,6 +126,6 @@ pub fn create() PLIC {
         .pending = .{false} ** n_interrupts,
         .ctx0_enable = .{false} ** n_interrupts,
         .ctx0_priority_threshold = 0,
-        .ctx0_interrupt_target = undefined,
+        .ctx0 = undefined,
     };
 }

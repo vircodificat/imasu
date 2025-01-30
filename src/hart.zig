@@ -147,7 +147,7 @@ pub const InterruptSource = enum {
 };
 
 // set the hart's interrupt pending bit for some source
-pub fn assert_interrupt_pending(hart: *Hart, source: InterruptSource, v: bool) void {
+pub fn set_interrupt_pending(hart: *Hart, source: InterruptSource, v: bool) void {
     switch (source) {
         .Software => hart.csrs.mip.msip = v,
         .Timer => hart.csrs.mip.mtip = v,
