@@ -24,8 +24,11 @@ ctx0_priority_threshold: u1,
 // hart that this PLIC is connected to
 ctx0: *Hart,
 
+// the PLIC is not ran in its own thread,
+// devices that signal interrupts and MMIO accesses will assume the role
+// of the PLIC and update its state and the state of the external
+// interrupt pending bits for each context, operating the PLIC is guarded by this mutex
 mutex: Mutex,
-cond: Condition,
 
 // interrupt priority register
 // we implement all interrupts with fixed priority of 1
@@ -41,7 +44,6 @@ pub const mmio_len = 0x400_0000;
 
 pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) !T {
     if (comptime T != u32) return Exception.LoadAccessFault;
-    plic.cond.signal();
     plic.mutex.lock();
     defer plic.mutex.unlock();
     errdefer plic.mutex.unlock();
@@ -72,6 +74,7 @@ pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) !T {
             return reg_ctx0_threshold;
         },
         reg_ctx0_claim => {
+            defer plic.update();
             var interrupt: u32 = 1;
             while (interrupt < n_interrupts) : (interrupt += 1) {
                 if (plic.ctx0_enable[interrupt] and plic.pending[interrupt]) {
@@ -87,7 +90,6 @@ pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) !T {
 
 pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) !void {
     if (comptime T != u32) return Exception.StoreAccessFault;
-    plic.cond.signal();
     plic.mutex.lock();
     defer plic.mutex.unlock();
     errdefer plic.mutex.unlock();
@@ -99,6 +101,7 @@ pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) !void 
         },
         reg_pending => return Exception.StoreAccessFault,
         reg_ctx0_enable => {
+            defer plic.update();
             var interrupt: u32 = 1;
             while (interrupt < n_interrupts) : (interrupt += 1) {
                 plic.ctx0_enable[interrupt] = (v >> @truncate(interrupt)) & 0b1 == 0b1;
@@ -106,6 +109,7 @@ pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) !void 
             return;
         },
         reg_ctx0_threshold => {
+            defer plic.update();
             plic.ctx0_priority_threshold = @truncate(v);
             return;
         },
@@ -117,53 +121,29 @@ pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) !void 
     }
 }
 
-pub fn task(plic: *PLIC) void {
-    var plic_timer = std.time.Timer.start() catch unreachable;
-    const period = 10 * std.time.ns_per_us;
-    while (true) {
-        plic.mutex.lock();
-        defer plic.mutex.unlock();
-
-        // run the PLIC
-        plic.run();
-
-        const time = plic_timer.read();
-        if (time > period) {
-            plic_timer.reset();
-            continue;
-        }
-        // if time until the PLIC is supposed to run again is above some threshold,
-        // put the thread to sleep until we reach that time, or one of the registers
-        // is written to, waking the thread back up
-        const delta = period - time;
-        if (delta > period / 10) {
-            plic.cond.timedWait(&plic.mutex, delta) catch {};
-        }
-        // busy wait the rest of the time
-        while (plic_timer.read() < period) {}
-        plic_timer.reset();
-    }
-}
-
-fn run(plic: *PLIC) void {
+// update the external interrupt pending bit for each context
+// should be called while the PLIC mutex is held and after reads/writes
+// that claim or modify pending interrupts
+fn update(plic: *PLIC) void {
     var int: u32 = 1;
-    var external_pending: bool = false;
-    defer plic.ctx0.set_interrupt_pending(.External, external_pending);
+    var external_interrupt_pending: bool = false;
+    defer plic.ctx0.set_interrupt_pending(.External, external_interrupt_pending);
+
     while (int < n_interrupts) : (int += 1) {
         if (plic.pending[int] and plic.ctx0_enable[int] and 1 > plic.ctx0_priority_threshold) {
-            external_pending = true;
+            external_interrupt_pending = true;
             break;
         }
     }
 }
 
 pub fn set_interrupt_pending(plic: *PLIC, interrupt_num: u32, v: bool) void {
-    plic.cond.signal();
-    plic.mutex.lock();
-    defer plic.mutex.unlock();
     assert(interrupt_num > 0 and interrupt_num < n_interrupts);
+
+    plic.mutex.lock();
     plic.pending[interrupt_num] = v;
-    return;
+    plic.update();
+    plic.mutex.unlock();
 }
 
 pub fn create() PLIC {
@@ -173,6 +153,5 @@ pub fn create() PLIC {
         .ctx0_priority_threshold = 0,
         .ctx0 = undefined,
         .mutex = Mutex{},
-        .cond = Condition{},
     };
 }

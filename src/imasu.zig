@@ -148,10 +148,6 @@ pub fn main() !void {
     var clint_thread = try std.Thread.spawn(.{}, CLINT.task, .{&clint});
     clint_thread.detach();
 
-    // spawn the thread that runs the PLIC
-    var plic_thread = try std.Thread.spawn(.{}, PLIC.task, .{&plic});
-    plic_thread.detach();
-
     // spawn the thread that runs the UART
     var uart_thread = try std.Thread.spawn(.{}, UART.task, .{&uart});
     uart_thread.detach();
