@@ -56,17 +56,17 @@ pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) !T {
         },
         reg_pending => {
             var v: u32 = 0;
-            var interrupt: u32 = 1;
+            var interrupt: u5 = 1;
             while (interrupt < n_interrupts) : (interrupt += 1) {
-                v |= @as(T, @intFromBool(plic.pending[interrupt])) << @truncate(interrupt);
+                v |= set_bit(plic.pending[interrupt], interrupt);
             }
             return v;
         },
         reg_ctx0_enable => {
             var v: u32 = 0;
-            var interrupt: u32 = 1;
+            var interrupt: u5 = 1;
             while (interrupt < n_interrupts) : (interrupt += 1) {
-                v |= @as(T, @intFromBool(plic.pending[interrupt])) << @truncate(interrupt);
+                v |= set_bit(plic.pending[interrupt], interrupt);
             }
             return v;
         },
@@ -102,15 +102,15 @@ pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) !void 
         reg_pending => return Exception.StoreAccessFault,
         reg_ctx0_enable => {
             defer plic.update();
-            var interrupt: u32 = 1;
+            var interrupt: u5 = 1;
             while (interrupt < n_interrupts) : (interrupt += 1) {
-                plic.ctx0_enable[interrupt] = (v >> @truncate(interrupt)) & 0b1 == 0b1;
+                plic.ctx0_enable[interrupt] = get_bit(v, interrupt);
             }
             return;
         },
         reg_ctx0_threshold => {
             defer plic.update();
-            plic.ctx0_priority_threshold = @truncate(v);
+            plic.ctx0_priority_threshold = @intFromBool(get_bit(v, 0));
             return;
         },
         reg_ctx0_claim => {
@@ -154,4 +154,12 @@ pub fn create() PLIC {
         .ctx0 = undefined,
         .mutex = Mutex{},
     };
+}
+
+inline fn get_bit(v: u32, bit: u5) bool {
+    return ((v >> bit) & 0b1) != 0;
+}
+
+inline fn set_bit(v: bool, bit: u5) u32 {
+    return @as(u32, @intFromBool(v)) << bit;
 }
