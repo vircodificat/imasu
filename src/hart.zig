@@ -166,20 +166,24 @@ pub fn set_interrupt_pending(hart: *Hart, source: InterruptSource, v: bool) void
 
 // try to take a trap caused by an interrupt
 pub fn try_take_interrupt(hart: *Hart) void {
-    // if the global mie bit is disabled, do not take any interrupts
-    if (hart.csrs.mstatus.mie == false) return;
+    // if the global mie bit is disabled and were in M-mode, do not take any interrupts
+    if (hart.priv == .M and hart.csrs.mstatus.mie == false) return;
+    assert(hart.priv == .U or (hart.priv == .M and hart.csrs.mstatus.mie));
     // check for and take external interrupts
     if (hart.csrs.mip.meip and hart.csrs.mie.meie) {
+        @branchHint(.unlikely);
         hart.trap_on_interrupt(.External);
         return;
     }
     // check for and take software interrupts
     if (hart.csrs.mip.msip and hart.csrs.mie.msie) {
+        @branchHint(.unlikely);
         hart.trap_on_interrupt(.Software);
         return;
     }
     // check for and take timer interrupts
     if (hart.csrs.mip.mtip and hart.csrs.mie.mtie) {
+        @branchHint(.unlikely);
         hart.trap_on_interrupt(.Timer);
         return;
     }
