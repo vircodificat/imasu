@@ -152,21 +152,19 @@ pub fn main() !void {
     var uart_thread = try std.Thread.spawn(.{}, UART.task, .{&uart});
     uart_thread.detach();
 
+    hart.mutex.lock();
     // main loop for the hart
+    const wfi_timeout = 100 * std.time.ns_per_ms;
     while (true) {
         hart.try_take_interrupt();
         // run at most some amount of cycles before checking for interrupts
         var cycle: usize = 0;
-        while (cycle < 1024) : (cycle += 1) {
+        while (cycle < 1024) : (cycle += 1) inst: {
             hart.step();
-            if (hart.wfi) {
+            if (hart.wfi) { // on wfi, halt until we receive an interrupt or timeout
                 @branchHint(.unlikely);
-                // on wfi, halt until we have a timeout or receive an interrupt
-                // and then try taking one
-                hart.mutex.lock();
-                hart.cond.timedWait(&hart.mutex, std.time.ns_per_ms) catch {};
-                hart.mutex.unlock();
-                hart.try_take_interrupt();
+                hart.cond.timedWait(&hart.mutex, wfi_timeout) catch {};
+                break :inst;
             }
         }
     }
