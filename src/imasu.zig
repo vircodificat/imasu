@@ -121,7 +121,6 @@ pub fn main() !void {
     };
 
     hart.mem = &mem;
-    clint.timer = try std.time.Timer.start();
     hart.csrs.time_csr_timer = &clint;
     clint.interrupt_target = &hart;
     plic.ctx0 = &hart;

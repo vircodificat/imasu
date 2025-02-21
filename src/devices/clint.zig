@@ -14,7 +14,6 @@ const CLINT = @This();
 mtime: u64, // timer value
 mtimecmp: u64, // timer compare value
 
-timer: Timer,
 interrupt_target: *Hart, // hart that this CLINT interrupts
 
 mutex: Mutex,
@@ -71,23 +70,31 @@ pub fn mmio_reg_write(clint: *CLINT, comptime T: type, reg_addr: u64, v: T) !voi
 
 // CLINT thread task
 pub fn task(clint: *CLINT) void {
+    var clint_timer = std.time.Timer.start() catch unreachable;
     while (true) {
         clint.mutex.lock();
         defer clint.mutex.unlock();
 
-        // run the timer by incrementing mtime, and checking against mtimecmp
-        // to set the mtip bit
-        const tick = clint.timer.lap();
+        // run the timer by incrementing mtime,
+        // and checking against mtimecmp to set the mtip bit
+        const tick = clint_timer.lap();
         clint.mtime += tick;
         clint.interrupt_target.set_interrupt_pending(.Timer, clint.mtime > clint.mtimecmp);
 
-        if (clint.mtimecmp < clint.mtime) continue;
+        if (clint.mtimecmp < clint.mtime) {
+            // if the timer has overrun, sleep for a short while before continuing to update mtime
+            clint.cond.timedWait(&clint.mutex, std.time.ns_per_us) catch {};
+            continue;
+        }
         // if the difference between now and mtimecmp is above some threshold,
         // put the thread to sleep until we reach that time, or one of the registers
         // is written to, waking the thread back up
-        const delta_ns = clint.mtimecmp - clint.mtime;
-        if (delta_ns > 10 * std.time.ns_per_us) {
-            clint.cond.timedWait(&clint.mutex, delta_ns) catch {};
+        const delta = clint.mtimecmp - clint.mtime;
+        if (delta > std.time.ns_per_us) {
+            // round down to the microsecond so we wake up before the timer overruns
+            // to deliver an accurately timed timer interrupt
+            const delta_us = (delta / std.time.ns_per_us) * std.time.ns_per_us;
+            clint.cond.timedWait(&clint.mutex, delta_us) catch {};
         }
     }
 }
@@ -97,7 +104,6 @@ pub fn create() CLINT {
         .interrupt_target = undefined,
         .mtime = 0,
         .mtimecmp = 0,
-        .timer = undefined,
         .mutex = Mutex{},
         .cond = Condition{},
     };
