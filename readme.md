@@ -14,7 +14,7 @@ The system is capable of running no-MMU builds of Linux, such as Buildroot
 
 ## Compiling and usage
 
-**imasu** is written in the `zig` language using the latest development branch, and requires the devicetree compiler `dtc` present at build time
+**imasu** is written in the `zig` language using the latest development branch
 
 `zig build [-Doptimize=...]` to compile the emulator
 

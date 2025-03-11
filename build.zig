@@ -10,13 +10,6 @@ pub fn build(b: *std.Build) void {
         .single_threaded = false,
     });
 
-    // compile devicetree blob to embed in emulator
-    const devicetree_cmd = b.addSystemCommand(&.{"dtc"});
-    devicetree_cmd.addFileArg(b.path("src/devicetree/imasu64.dts"));
-    devicetree_cmd.addArgs(&.{ "-O", "dtb", "-o" });
-    devicetree_cmd.addFileArg(b.path("src/devicetree/imasu64.dtb"));
-    exe.step.dependOn(&devicetree_cmd.step);
-
     b.installArtifact(exe);
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
