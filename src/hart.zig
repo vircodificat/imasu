@@ -67,6 +67,32 @@ inline fn sext_to_xlen(value: anytype) xlen {
     return @bitCast(@as(signed_xlen, signed(value)));
 }
 
+// interrupt types and xcause csr values
+pub const Interrupt = enum(xlen) {
+    Software = 3,
+    Timer = 7,
+    External = 11,
+};
+
+pub fn task(hart: *Hart) void {
+    hart.mutex.lock();
+    // main loop for the hart
+    const wfi_timeout = 100 * std.time.ns_per_ms;
+    while (true) {
+        hart.try_take_interrupt();
+        // run at most some amount of cycles before checking for interrupts
+        var cycle: usize = 0;
+        while (cycle < 1024) : (cycle += 1) inst: {
+            hart.step();
+            if (hart.wfi) { // on wfi, halt until we receive an interrupt or timeout
+                @branchHint(.unlikely);
+                hart.cond.timedWait(&hart.mutex, wfi_timeout) catch {};
+                break :inst;
+            }
+        }
+    }
+}
+
 // perform a fetch-decode-execute cycle of the hart
 pub fn step(hart: *Hart) void {
     hart.wfi = false;
@@ -148,15 +174,9 @@ fn exception_to_xcause_csr_value(err: Exception) xlen {
     };
 }
 
-pub const InterruptSource = enum {
-    Software,
-    Timer,
-    External,
-};
-
 // set the hart's interrupt pending bit for some source
-pub fn set_interrupt_pending(hart: *Hart, source: InterruptSource, v: bool) void {
-    switch (source) {
+pub fn set_interrupt_pending(hart: *Hart, interrupt: Interrupt, v: bool) void {
+    switch (interrupt) {
         .Software => hart.csrs.mip.msip = v,
         .Timer => hart.csrs.mip.mtip = v,
         .External => hart.csrs.mip.meip = v,
@@ -190,13 +210,9 @@ pub fn try_take_interrupt(hart: *Hart) void {
 }
 
 // take a trap caused by an interrupt
-fn trap_on_interrupt(hart: *Hart, source: InterruptSource) void {
+fn trap_on_interrupt(hart: *Hart, interrupt: Interrupt) void {
     assert(hart.csrs.mstatus.mie == true);
-    const xcause_exception_code: xlen = switch (source) {
-        .Software => 3,
-        .Timer => 7,
-        .External => 11,
-    };
+    const xcause_exception_code = @intFromEnum(interrupt);
     // push mie to mpie, mie becomes false
     hart.csrs.mstatus.mpie = hart.csrs.mstatus.mie;
     hart.csrs.mstatus.mie = false;
