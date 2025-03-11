@@ -1,3 +1,4 @@
+const DeviceTree = @import("devicetree.zig");
 const Device = @import("device.zig");
 const CLINT = @import("devices/clint.zig");
 const PLIC = @import("devices/plic.zig");
@@ -8,14 +9,6 @@ const Memory = @import("memory.zig");
 const Hart = @import("hart.zig");
 const std = @import("std");
 const eql = std.mem.eql;
-
-const dtb_sz = 64 * 1024;
-const devicetree = @embedFile("devicetree/imasu64.dtb");
-const dtb_buffer: [dtb_sz]u8 = dtb: {
-    var buf: [dtb_sz]u8 = .{0} ** dtb_sz;
-    @memcpy(buf[0..devicetree.len], devicetree);
-    break :dtb buf;
-};
 
 // TODO: accept memory size on command line
 const mem_sz = 256 * 1024 * 1024;
@@ -68,55 +61,158 @@ pub fn main() !void {
         defer file.close();
         break :blk try file.readToEndAlloc(a, mem_sz);
     };
-
     // allocate memory for ram and load image into it
     var ram = try a.alloc(u8, mem_sz);
     @memset(ram, 0);
     @memcpy(ram[0..image.len], image);
     a.free(image);
+
+    // create empty device tree
+    var root = try DeviceTree.create_tree(a);
+    errdefer root.deinit_tree(a);
+    var next_phandle: u32 = 1;
+
+    try root.add_property_u32("#address-cells", 2, a);
+    try root.add_property_u32("#size-cells", 2, a);
+    try root.add_property_string("compatible", "riscv,imasu64", a);
+    try root.add_property_string("model", "riscv-nommu,imasu64", a);
+
+    var chosen_node = try root.create_child("chosen", a);
+    try chosen_node.add_property_string("bootargs", "earlycon=uart,mmio,0x10000000,9600n console=ttyS0", a);
+
     // create memory with ram
     var mem = Memory.create(ram);
+
+    const mem_node_name = try node_name_with_unit_address("memory", Memory.mem_base, a);
+    var mem_node = try root.create_child(mem_node_name, a);
+    try mem_node.add_property_string("device_type", "memory", a);
+    try mem_node.add_property_u64_array("reg", &.{ Memory.mem_base, mem_sz }, a);
+
+    var soc_node = try root.create_child("soc", a);
+    try soc_node.add_property_u32("#address-cells", 2, a);
+    try soc_node.add_property_u32("#size-cells", 2, a);
+    try soc_node.add_property_string("compatible", "simple-bus", a);
+    try soc_node.add_property_bool("ranges", a);
 
     // create a hart
     var hart = Hart.create();
 
+    var cpus_node = try root.create_child("cpus", a);
+    try cpus_node.add_property_u32("#address-cells", 1, a);
+    try cpus_node.add_property_u32("#size-cells", 0, a);
+    try cpus_node.add_property_u32("timebase-frequency", std.time.ns_per_s, a);
+    const cpu0_node_name = try node_name_with_unit_address("cpu", 0, a);
+    var cpu0_node = try cpus_node.create_child(cpu0_node_name, a);
+    try cpu0_node.add_property_string("compatible", "riscv", a);
+    try cpu0_node.add_property_string("device_type", "cpu", a);
+    try cpu0_node.add_property_u32("reg", 0, a);
+    try cpu0_node.add_property_string("riscv,isa-base", "rv64i", a);
+    try cpu0_node.add_property_string("riscv,extensions", "i\x00m\x00a\x00zicsr\x00zifencei", a);
+    try cpu0_node.add_property_string("mmu-type", "riscv,none", a);
+
     // create CLINT timer device
+    const clint_mmio_base: u64 = 0x1100_0000;
     var clint = CLINT.create();
     var clint_dev = Device{
         .kind = .{ .clint = &clint },
-        .mmio_base = 0x1100_0000,
+        .mmio_base = clint_mmio_base,
         .mmio_len = CLINT.mmio_len,
     };
 
+    var cpu0_intc_node = try cpu0_node.create_child("interrupt-controller", a);
+    try cpu0_intc_node.add_property_bool("interrupt-controller", a);
+    try cpu0_intc_node.add_property_u32("#interrupt-cells", 1, a);
+    try cpu0_intc_node.add_property_string("compatible", "riscv,cpu-intc", a);
+    const cpu0_intc_phandle = next_phandle;
+    next_phandle += 1;
+    try cpu0_intc_node.add_property_u32("phandle", cpu0_intc_phandle, a);
+
+    const clint_node_name = try node_name_with_unit_address("clint", clint_mmio_base, a);
+    var clint_node = try soc_node.create_child(clint_node_name, a);
+    try clint_node.add_property_string("compatible", "sifive,clint0\x00riscv,clint0", a);
+    try clint_node.add_property_u64_array("reg", &.{ clint_mmio_base, CLINT.mmio_len }, a);
+    try clint_node.add_property_u32_array("interrupts-extended", &.{ cpu0_intc_phandle, 0x3, cpu0_intc_phandle, 0x7 }, a);
+
     // create PLIC device
+    const plic_mmio_base: u64 = 0x0c00_0000;
     var plic = PLIC.create();
     var plic_dev = Device{
         .kind = .{ .plic = &plic },
-        .mmio_base = 0x0c00_0000,
+        .mmio_base = plic_mmio_base,
         .mmio_len = PLIC.mmio_len,
     };
 
+    const plic_node_name = try node_name_with_unit_address("interrupt-controller", plic_mmio_base, a);
+    var plic_node = try root.create_child(plic_node_name, a);
+    try plic_node.add_property_bool("interrupt-controller", a);
+    try plic_node.add_property_u32("#address-cells", 2, a);
+    try plic_node.add_property_u32("#interrupt-cells", 1, a);
+    try plic_node.add_property_string("compatible", "sifive,plic-1.0.0", a);
+    try plic_node.add_property_u64_array("reg", &.{ plic_mmio_base, PLIC.mmio_len }, a);
+    try plic_node.add_property_u32("riscv,ndev", 1, a);
+    try plic_node.add_property_u32_array("interrupts-extended", &.{ cpu0_intc_phandle, 0xb }, a);
+    const plic_phandle = next_phandle;
+    next_phandle += 1;
+    try plic_node.add_property_u32("phandle", plic_phandle, a);
+
     // create UART device
+    const uart_mmio_base: u64 = 0x1000_0000;
     var uart = UART.create();
     var uart_dev = Device{
         .kind = .{ .uart = &uart },
-        .mmio_base = 0x1000_0000,
+        .mmio_base = uart_mmio_base,
         .mmio_len = UART.mmio_len,
     };
 
-    var syscon = Syscon{};
+    const uart_node_name = try node_name_with_unit_address("uart", uart_mmio_base, a);
+    var uart_node = try soc_node.create_child(uart_node_name, a);
+    try uart_node.add_property_string("compatible", "ns8250", a);
+    try uart_node.add_property_u64_array("reg", &.{ uart_mmio_base, UART.mmio_len }, a);
+    try uart_node.add_property_u32_array("interrupts-extended", &.{ plic_phandle, 0x1 }, a);
+    try uart_node.add_property_u32("clock-frequency", 9600 * 16, a);
+
     // create Syscon
+    const syscon_mmio_base: u64 = 0x1110_0000;
+    var syscon = Syscon{};
     var syscon_dev = Device{
         .kind = .{ .syscon = &syscon },
-        .mmio_base = 0x1110_0000,
+        .mmio_base = syscon_mmio_base,
         .mmio_len = Syscon.mmio_len,
     };
+    const syscon_node_name = try node_name_with_unit_address("syscon", syscon_mmio_base, a);
+    var syscon_node = try soc_node.create_child(syscon_node_name, a);
+    try syscon_node.add_property_string("compatible", "syscon", a);
+    try syscon_node.add_property_u64_array("reg", &.{ syscon_mmio_base, Syscon.mmio_len }, a);
+    const syscon_phandle = next_phandle;
+    next_phandle += 1;
+    try syscon_node.add_property_u32("phandle", syscon_phandle, a);
+    var syscon_poweroff_node = try root.create_child("poweroff", a);
+    try syscon_poweroff_node.add_property_string("compatible", "syscon-poweroff", a);
+    try syscon_poweroff_node.add_property_u32("value", Syscon.poweroff, a);
+    try syscon_poweroff_node.add_property_u32("offset", 0, a);
+    try syscon_poweroff_node.add_property_u32("regmap", syscon_phandle, a);
 
-    // create DTB ROM device with dtb bytes
+    // create DTB node in devicetree, then finish
+    const dtb_mmio_base: u64 = 0x7000_0000;
+    const dtb_sz = 16 * 1024;
+    const dtb_node_name = try node_name_with_unit_address("dtb", dtb_mmio_base, a);
+    var dtb_node = try root.create_child(dtb_node_name, a);
+    try dtb_node.add_property_u64_array("reg", &.{ dtb_mmio_base, dtb_sz }, a);
+    try dtb_node.add_property_bool("read-only", a);
+
+    const dtb_buffer = dtb: {
+        var buffer: [dtb_sz]u8 = @splat(0);
+        const dtb_data = try root.emit_dtb(a);
+        defer a.free(dtb_data);
+        @memcpy(buffer[0..dtb_data.len], dtb_data);
+        break :dtb buffer;
+    };
+
+    // create DTB ROM device with the buffer
     var dtb_rom = ROM{ .mem = &dtb_buffer };
     var dtb_dev = Device{
         .kind = .{ .rom = &dtb_rom },
-        .mmio_base = 0x7000_0000,
+        .mmio_base = dtb_mmio_base,
         .mmio_len = dtb_sz,
     };
 
@@ -155,6 +251,16 @@ pub fn main() !void {
     // run the hart on the main thread
     hart.task();
 }
+
+fn node_name_with_unit_address(name: []const u8, unit_addr: u64, a: std.mem.Allocator) ![]u8 {
+    // unit_addr when writen as hex can take up at most 16 bytes
+    var num_buf: [16]u8 = undefined;
+    const num = std.fmt.bufPrintIntToSlice(&num_buf, unit_addr, 16, .lower, .{});
+    var buf = try a.alloc(u8, name.len + 1 + num.len);
+    const string = std.fmt.bufPrint(buf[0..buf.len], "{s}@{s}", .{ name, num }) catch unreachable;
+    std.debug.assert(num.len <= 16);
+    std.debug.assert(string.len == buf.len);
+    return string;
 }
 
 // zig fmt: off
