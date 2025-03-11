@@ -10,22 +10,32 @@ const Hart = @import("hart.zig");
 const std = @import("std");
 const eql = std.mem.eql;
 
-// TODO: accept memory size on command line
-const mem_sz = 256 * 1024 * 1024;
-
 const help_text =
     \\imasu64 is a RISC-V 64-bit System Emulator
     \\(isa string: rv64imau_zicsr_zifencei)
     \\
-    \\usage: imasu64 <image> [ --ctrlc ] [ -h, --help ]
+    \\usage: imasu64 [ -i <image> ] [ -m, --memory <memory size> ] [ --dtb ] [ --ctrlc ] [ -h, --help ]
     \\
-    \\image is a binary image to run on the emulator
-    \\
-    \\--ctrlc     allow Ctrl+C to be sent through stdin,
-    \\            instead of terminating the emulator
-    \\-h, --help  print this help text
+    \\-i <image>                  Provide a binary image for the emulator to run
+    \\-m, --memory <memory size>  Specify system main memory size in MiB, default is 256
+    \\--dtb                       Instead of running the emulator, prints the generated devicetree blob,
+    \\                            can be used to pipe into devicetree compiler (dtc -I dtb)
+    \\--ctrlc                     Allow Ctrl+C to be sent through stdin, instead of terminating the emulator
+    \\-h, --help                  Print this help text
     \\
 ;
+
+fn die(comptime format: []const u8, args: anytype) noreturn {
+    const stderr = std.io.getStdErr().writer();
+    stderr.print(format ++ "\n", args) catch {};
+    std.process.exit(1);
+}
+
+fn die_with_error(comptime format: []const u8, args: anytype, err: anyerror) noreturn {
+    const stderr = std.io.getStdErr().writer();
+    stderr.print(format ++ ": {s}\n", args ++ .{@errorName(err)}) catch {};
+    std.process.exit(1);
+}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -35,37 +45,58 @@ pub fn main() !void {
 
     const stdout = std.io.getStdOut().writer();
 
-    var image_path: ?[*:0]u8 = null;
+    var image_path: ?[:0]const u8 = null;
+    var mem_sz: usize = 256 * 1024 * 1024;
     var allow_ctrl_c: bool = false;
+    var print_dtb: bool = false;
 
-    for (args[1..args.len]) |arg| {
-        if (eql(u8, arg, "-h") or eql(u8, arg, "--help")) {
-            _ = stdout.write(help_text) catch {};
-            std.process.exit(0);
+    var idx: usize = 1;
+    while (idx < args.len) : (idx += 1) {
+        const arg: [:0]const u8 = args[idx];
+        const maybe_next: ?[:0]const u8 = if (idx + 1 < args.len) args[idx + 1] else null;
+
+        // -i <image>
+        if (eql(u8, arg, "-i")) {
+            if (maybe_next) |next_arg| {
+                image_path = next_arg;
+            } else die("flag '-i' expects a file path", .{});
+            idx += 1;
+            continue;
         }
+
+        // -m, --memory <memory size>
+        if (eql(u8, arg, "-m") or eql(u8, arg, "--memory")) {
+            var mem_sz_mib: usize = undefined;
+            if (maybe_next) |next_arg| {
+                mem_sz_mib = std.fmt.parseInt(usize, next_arg, 10) catch |err| {
+                    die_with_error("could not parse memory size", .{}, err);
+                };
+            } else die("flag '{s}' expects a memory size\n", .{arg});
+            if (mem_sz_mib < 8) die("too little memory for system, use at least 8 MiB", .{});
+            if (mem_sz_mib > std.math.maxInt(usize) / 1024 * 1024) die("memory size specified is too big", .{});
+            mem_sz = mem_sz_mib * 1024 * 1024;
+            idx += 1;
+            continue;
+        }
+
+        // --dtb
+        if (eql(u8, arg, "--dtb")) {
+            print_dtb = true;
+            continue;
+        }
+
+        // --ctrlc
         if (eql(u8, arg, "--ctrlc")) {
             allow_ctrl_c = true;
             continue;
         }
-        image_path = arg;
-    }
 
-    if (image_path == null) {
-        const text = "no binary image provided, run with -h or --help for usage\n";
-        _ = stdout.write(text) catch {};
-        std.process.exit(1);
+        // -h, --help
+        if (eql(u8, arg, "-h") or eql(u8, arg, "--help")) {
+            _ = stdout.write(help_text) catch {};
+            std.process.exit(0);
+        }
     }
-
-    const image = blk: {
-        const file = try std.fs.cwd().openFileZ(image_path.?, .{});
-        defer file.close();
-        break :blk try file.readToEndAlloc(a, mem_sz);
-    };
-    // allocate memory for ram and load image into it
-    var ram = try a.alloc(u8, mem_sz);
-    @memset(ram, 0);
-    @memcpy(ram[0..image.len], image);
-    a.free(image);
 
     // create empty device tree
     var root = try DeviceTree.create_tree(a);
@@ -79,9 +110,6 @@ pub fn main() !void {
 
     var chosen_node = try root.create_child("chosen", a);
     try chosen_node.add_property_string("bootargs", "earlycon=uart,mmio,0x10000000,9600n console=ttyS0", a);
-
-    // create memory with ram
-    var mem = Memory.create(ram);
 
     const mem_node_name = try node_name_with_unit_address("memory", Memory.mem_base, a);
     var mem_node = try root.create_child(mem_node_name, a);
@@ -204,6 +232,12 @@ pub fn main() !void {
         var buffer: [dtb_sz]u8 = @splat(0);
         const dtb_data = try root.emit_dtb(a);
         defer a.free(dtb_data);
+
+        if (print_dtb) {
+            _ = stdout.write(dtb_data) catch {};
+            std.process.exit(0);
+        }
+
         @memcpy(buffer[0..dtb_data.len], dtb_data);
         break :dtb buffer;
     };
@@ -215,6 +249,34 @@ pub fn main() !void {
         .mmio_base = dtb_mmio_base,
         .mmio_len = dtb_sz,
     };
+
+    std.debug.assert(print_dtb == false); // should have quit by now!
+
+    if (image_path == null) die("no binary image provided, run with -h or --help for usage", .{});
+
+    const image_file = std.posix.open(image_path.?, .{ .ACCMODE = .RDONLY }, 0) catch |err| {
+        die_with_error("could not open \"{s}\"", .{image_path.?}, err);
+    };
+    defer std.posix.close(image_file);
+    const image_len: usize = @intCast((try std.posix.fstat(image_file)).size);
+
+    if (image_len > mem_sz) die("image file \"{s}\" is too big to fit in main memory", .{image_path.?});
+
+    // allocate memory for ram and mmap the image into it
+    var ram = try a.alignedAlloc(u8, std.heap.page_size_min, mem_sz);
+    @memset(ram, 0);
+    _ = std.posix.mmap(
+        @ptrCast(@alignCast(&ram[0])),
+        image_len,
+        (std.posix.PROT.READ | std.posix.PROT.WRITE | std.posix.PROT.EXEC),
+        std.posix.MAP{ .FIXED = true, .TYPE = .PRIVATE },
+        image_file,
+        0,
+    ) catch |err| {
+        die_with_error("failed to mmap \"{s}\"", .{image_path.?}, err);
+    };
+    // create memory with ram
+    var mem = Memory.create(ram);
 
     hart.mem = &mem;
     hart.csrs.time_csr_timer = &clint;

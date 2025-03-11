@@ -20,7 +20,7 @@ The system is capable of running no-MMU builds of Linux, such as Buildroot
 
 `zig build install [...] --prefix-exe-dir <directory>` will compile and place the `imasu64` binary in your install directory of choice
 
-run the `imasu64` binary or `zig build run` with `-h`/`--help` for help and usage information, the most common usage is to invoke with the path of a binary image to load into the emulator
+run the `imasu64` binary or `zig build run` with `-h`/`--help` for help and usage information
 
 ### Building Linux
 
