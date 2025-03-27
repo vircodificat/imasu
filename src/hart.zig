@@ -177,9 +177,9 @@ fn exception_to_xcause_csr_value(err: Exception) xlen {
 // set the hart's interrupt pending bit for some source
 pub fn set_interrupt_pending(hart: *Hart, interrupt: Interrupt, v: bool) void {
     switch (interrupt) {
-        .Software => hart.csrs.mip.msip = v,
-        .Timer => hart.csrs.mip.mtip = v,
-        .External => hart.csrs.mip.meip = v,
+        .Software => hart.csrs.ip.msip = v,
+        .Timer => hart.csrs.ip.mtip = v,
+        .External => hart.csrs.ip.meip = v,
     }
     if (v == true) hart.cond.signal();
 }
@@ -187,22 +187,22 @@ pub fn set_interrupt_pending(hart: *Hart, interrupt: Interrupt, v: bool) void {
 // try to take a trap caused by an interrupt
 pub fn try_take_interrupt(hart: *Hart) void {
     // if the global mie bit is disabled and were in M-mode, do not take any interrupts
-    if (hart.priv == .M and hart.csrs.mstatus.mie == false) return;
-    assert(hart.priv == .U or (hart.priv == .M and hart.csrs.mstatus.mie));
+    if (hart.priv == .M and hart.csrs.status.mie == false) return;
+    assert(hart.priv != .M or (hart.priv == .M and hart.csrs.status.mie));
     // check for and take external interrupts
-    if (hart.csrs.mip.meip and hart.csrs.mie.meie) {
+    if (hart.csrs.ip.meip and hart.csrs.ie.meie) {
         @branchHint(.unlikely);
         hart.trap_on_interrupt(.External);
         return;
     }
     // check for and take software interrupts
-    if (hart.csrs.mip.msip and hart.csrs.mie.msie) {
+    if (hart.csrs.ip.msip and hart.csrs.ie.msie) {
         @branchHint(.unlikely);
         hart.trap_on_interrupt(.Software);
         return;
     }
     // check for and take timer interrupts
-    if (hart.csrs.mip.mtip and hart.csrs.mie.mtie) {
+    if (hart.csrs.ip.mtip and hart.csrs.ie.mtie) {
         @branchHint(.unlikely);
         hart.trap_on_interrupt(.Timer);
         return;
@@ -211,13 +211,13 @@ pub fn try_take_interrupt(hart: *Hart) void {
 
 // take a trap caused by an interrupt
 fn trap_on_interrupt(hart: *Hart, interrupt: Interrupt) void {
-    assert(hart.csrs.mstatus.mie == true);
+    assert(hart.csrs.status.mie == true);
     const xcause_exception_code = @intFromEnum(interrupt);
     // push mie to mpie, mie becomes false
-    hart.csrs.mstatus.mpie = hart.csrs.mstatus.mie;
-    hart.csrs.mstatus.mie = false;
+    hart.csrs.status.mpie = hart.csrs.status.mie;
+    hart.csrs.status.mie = false;
     // push current privilege to mpp, privilege becomes M-mode
-    hart.csrs.mstatus.mpp = hart.priv;
+    hart.csrs.status.mpp = hart.priv;
     hart.priv = .M;
     // mtval is set to 0
     hart.csrs.mtval = 0;
@@ -237,10 +237,10 @@ fn trap_on_exception(hart: *Hart, err: Exception, xtval: xlen) void {
     // TODO: S-mode delegation when S-mode is implemented
 
     // push mie to mpie, mie becomes false
-    hart.csrs.mstatus.mpie = hart.csrs.mstatus.mie;
-    hart.csrs.mstatus.mie = false;
+    hart.csrs.status.mpie = hart.csrs.status.mie;
+    hart.csrs.status.mie = false;
     // push current privilege to mpp, privilege becomes M-mode
-    hart.csrs.mstatus.mpp = hart.priv;
+    hart.csrs.status.mpp = hart.priv;
     hart.priv = .M;
     // store exception cause and value
     hart.csrs.mtval = xtval;
@@ -256,15 +256,28 @@ fn trap_on_exception(hart: *Hart, err: Exception, xtval: xlen) void {
 // perform 'mret'
 fn mret(hart: *Hart) !void {
     if (hart.priv != .M) return error.IllegalInstruction;
-    if (hart.csrs.mstatus.mpp == .S) unreachable;
     // pop privilege from mpp, mpp becomes lowest privilege level
-    hart.priv = hart.csrs.mstatus.mpp;
-    hart.csrs.mstatus.mpp = .U;
+    hart.priv = hart.csrs.status.mpp;
+    hart.csrs.status.mpp = .U;
     // pop mpie to mie, mpie becomes set
-    hart.csrs.mstatus.mie = hart.csrs.mstatus.mpie;
-    hart.csrs.mstatus.mpie = true;
+    hart.csrs.status.mie = hart.csrs.status.mpie;
+    hart.csrs.status.mpie = true;
     // set the program counter to mepc
     hart.pc = hart.csrs.mepc;
+    return;
+}
+
+// perform 'sret'
+fn sret(hart: *Hart) !void {
+    if (hart.priv != .S) return error.IllegalInstruction;
+    // pop privilege from spp, spp becomes lowest privilege level
+    hart.priv = if (hart.csrs.status.spp) .S else .U;
+    hart.csrs.status.spp = false;
+    // pop spie to sie, spie becomes set
+    hart.csrs.status.sie = hart.csrs.status.spie;
+    hart.csrs.status.spie = true;
+    // set the program counter to sepc
+    hart.pc = hart.csrs.sepc;
     return;
 }
 
@@ -535,6 +548,15 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     hart.pc +%= 4;
                     return;
                 },
+                .@"sfence.vma" => { // no-op, but can only be called in S-mode
+                    if (hart.priv != .S) return Exception.IllegalInstruction;
+                    hart.pc +%= 4;
+                    return;
+                },
+                .sret => {
+                    try hart.sret();
+                    return;
+                },
                 .mret => {
                     try hart.mret();
                     return;
@@ -547,10 +569,9 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                 .ebreak => return Exception.Breakpoint,
                 .ecall => return switch (hart.priv) {
                     .U => Exception.ECallUser,
+                    .S => Exception.ECallSupervisor,
                     .M => Exception.ECallMachine,
-                    else => unreachable,
                 },
-                else => return Exception.IllegalInstruction,
             }
         },
     }

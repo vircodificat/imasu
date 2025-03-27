@@ -36,7 +36,7 @@ pub fn mmio_reg_read(clint: *CLINT, comptime T: type, reg_addr: u64) !T {
             else => return Exception.LoadAccessFault,
         },
         u32 => switch (reg_addr) { // 4-byte access to all registers
-            reg_mswi => return @as(T, @intFromBool(clint.interrupt_target.csrs.mip.msip)),
+            reg_mswi => return @as(T, @intFromBool(clint.interrupt_target.csrs.ip.msip)),
             reg_mtime => return @truncate(clint.mtime),
             reg_mtime + 4 => return @truncate(clint.mtime >> 32),
             reg_mtimecmp => return @truncate(clint.mtimecmp),
