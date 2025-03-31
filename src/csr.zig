@@ -41,7 +41,16 @@ ip: struct { // Interrupt pending register
     mtip: bool, // M-mode Timer interrupt pending
     meip: bool, // M-mode External interrupt pending
 },
-
+counteren: struct { // Counter-enable registers
+    mcy: bool, // M-mode Cycle counter enable
+    mtm: bool, // M-mode Timer counter enable
+    scy: bool, // S-mode Cycle counter enable
+    stm: bool, // S-mode Timer counter enable
+},
+countinhibit: struct { // Counter inhibit register
+    cy: bool, // M-mode inhibit cycle counter
+},
+cycle: xlen, // Cycles counter for cycle CSR
 time_csr_timer: *CLINT, // Timer for time CSR
 
 inline fn mstatus_read(csrs: CSRs) xlen {
@@ -138,6 +147,7 @@ const csr_mepc          = 0x341;
 const csr_mcause        = 0x342;
 const csr_mtval         = 0x343;
 const csr_mip           = 0x344;
+const csr_cycle         = 0xc00;
 const csr_time          = 0xc01;
 const csr_mvendorid     = 0xf11;
 const csr_marchid       = 0xf12;
@@ -182,6 +192,14 @@ pub fn create() CSRs {
             .mtip = false,
             .meip = false,
         },
+        .counteren = .{
+            .mcy = true,
+            .scy = true,
+            .mtm = true,
+            .stm = true,
+        },
+        .countinhibit = .{ .cy = false },
+        .cycle = 0,
         .time_csr_timer = undefined,
     };
 }
@@ -211,8 +229,9 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
         csr_sstatus => csrs.sstatus_read(),
         csr_sie => csrs.sie_read(),
         csr_stvec => csrs.stvec.base
-        | @intFromBool(csrs.stvec.vectored),
-        csr_scounteren => 0, // TODO: should be a single bit for time
+            | @intFromBool(csrs.stvec.vectored),
+        csr_scounteren => set_bit(csrs.counteren.scy, 0)
+            | set_bit(csrs.counteren.stm, 1),
         csr_sscratch => csrs.sscratch,
         csr_sepc => csrs.sepc,
         csr_scause => csrs.scause,
@@ -226,15 +245,25 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
         csr_mie => csrs.mie_read(),
         csr_mtvec => csrs.mtvec.base
             | @intFromBool(csrs.mtvec.vectored),
-        csr_mcounteren => return 0, // TODO
+        csr_mcounteren => set_bit(csrs.counteren.mcy, 0)
+            | set_bit(csrs.counteren.mtm, 1),
         csr_menvcfg => 0, // TODO
-        csr_mcountinhibit => 0, // TODO
+        csr_mcountinhibit => set_bit(csrs.countinhibit.cy, 0),
         csr_mscratch => csrs.mscratch,
         csr_mepc => csrs.mepc,
         csr_mcause => csrs.mcause,
         csr_mtval => csrs.mtval,
         csr_mip => csrs.mip_read(),
-        csr_time => csrs.time_csr_timer.mtime,
+        csr_cycle => switch (priv) {
+            .M => csrs.cycle,
+            .S => if (csrs.counteren.mcy) csrs.cycle else Illegal,
+            .U => if (csrs.counteren.mcy and csrs.counteren.scy) csrs.cycle else Illegal,
+        },
+        csr_time => switch (priv) {
+            .M => csrs.time_csr_timer.mtime,
+            .S => if (csrs.counteren.mtm) csrs.time_csr_timer.mtime else Illegal,
+            .U => if (csrs.counteren.mtm and csrs.counteren.stm) csrs.time_csr_timer.mtime else Illegal,
+        },
         csr_mvendorid => 0,
         csr_marchid => 0,
         csr_mimpid => 0,
@@ -258,7 +287,10 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
             .base = v & ~@as(xlen, 0b11),
             .vectored = (v & 0b11) == 0b01,
         },
-        csr_scounteren => {}, // TODO
+        csr_scounteren => {
+            csrs.counteren.scy = get_bit(v, 0);
+            csrs.counteren.stm = get_bit(v, 1);
+        },
         csr_sscratch => csrs.sscratch = v,
         csr_sepc => csrs.sepc = v,
         csr_scause => csrs.scause = v,
@@ -274,9 +306,12 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
             .base = v & ~@as(xlen, 0b11),
             .vectored = (v & 0b11) == 0b01,
         },
-        csr_mcounteren => {}, // TODO
+        csr_mcounteren => {
+            csrs.counteren.mcy = get_bit(v, 0);
+            csrs.counteren.mtm = get_bit(v, 1);
+        },
         csr_menvcfg => {}, // TODO
-        csr_mcountinhibit => {}, // TODO
+        csr_mcountinhibit => csrs.countinhibit = .{ .cy = get_bit(v, 0) },
         csr_mscratch => csrs.mscratch = v,
         csr_mepc => csrs.mepc = v,
         csr_mcause => csrs.mcause = v,

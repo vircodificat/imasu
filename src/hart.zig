@@ -96,6 +96,7 @@ pub fn task(hart: *Hart) void {
 // perform a fetch-decode-execute cycle of the hart
 pub fn step(hart: *Hart) void {
     hart.wfi = false;
+    if (!hart.csrs.countinhibit.cy) hart.csrs.cycle +%= 1;
     // fetch instruction
     const inst_bits = hart.mem.fetch(hart.pc) catch |err| {
         // on instruction address misaligned or instruction fetch access/page fault,
