@@ -192,12 +192,13 @@ pub fn main() !void {
         .mmio_len = UART.mmio_len,
     };
 
-    const uart_node_name = try node_name_with_unit_address("uart", uart_mmio_base, a);
+    const uart_node_name = try node_name_with_unit_address("serial", uart_mmio_base, a);
     var uart_node = try soc_node.create_child(uart_node_name, a);
-    try uart_node.add_property_string("compatible", "ns8250", a);
+    try uart_node.add_property_string("compatible", "ns16550", a);
     try uart_node.add_property_u64_array("reg", &.{ uart_mmio_base, UART.mmio_len }, a);
     try uart_node.add_property_u32_array("interrupts-extended", &.{ plic_phandle, 0x1 }, a);
     try uart_node.add_property_u32("clock-frequency", 9600 * 16, a);
+    try chosen_node.add_property_string("stdout-path", "/soc/serial", a);
 
     // create Syscon
     const syscon_mmio_base: u64 = 0x1110_0000;
