@@ -9,7 +9,9 @@ const std = @import("std");
 
 const Syscon = @This();
 
-pub const mmio_len = 0x4;
+// In actuality the size of the memory region is 4 bytes,
+// but OpenSBI domain memory regions must be at least 8 bytes long
+pub const mmio_len = 0x8;
 
 pub const poweroff: u32 = 0x0000DEAD;
 
