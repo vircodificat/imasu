@@ -24,8 +24,8 @@ last_interrupt_cause: ?enum {
 lcr: struct {
     dl_enable: bool,
 },
+scr: u8, // scratch register
 // mcr, msr not implemented (read-only 0)
-// scr not implemented (does not exist)
 // dll, dlm not implemented, but we honour the dll/dlm enable bit
 
 mutex: Mutex,
@@ -43,6 +43,7 @@ const reg_lcr = 0x3;
 const reg_mcr = 0x4;
 const reg_lsr = 0x5;
 const reg_msr = 0x6;
+const reg_scr = 0x7;
 
 pub const mmio_len = 0x8;
 
@@ -87,7 +88,8 @@ pub fn mmio_reg_read(uart: *UART, comptime T: type, reg_addr: u64) !T {
             return set_bit(uart.rbr != null, 0) | set_bit(uart.thr == null, 5) | set_bit(uart.thr == null, 6);
         },
         reg_msr => return 0, // not implemented
-        else => return Exception.LoadAccessFault, // scratch register not present
+        reg_scr => return uart.scr,
+        else => unreachable,
     }
 }
 
@@ -115,7 +117,8 @@ pub fn mmio_reg_write(uart: *UART, comptime T: type, reg_addr: u64, v: T) !void 
         reg_mcr => return, // ignore, not implemented
         reg_lsr => return, // ignore, read-only register
         reg_msr => return, // ignore, not implemented
-        else => return Exception.StoreAccessFault,
+        reg_scr => uart.scr = v,
+        else => unreachable,
     }
     return;
 }
@@ -188,6 +191,7 @@ pub fn create() UART {
         .lcr = .{
             .dl_enable = false,
         },
+        .scr = 0,
         .mutex = Mutex{},
         .cond = Condition{},
     };
