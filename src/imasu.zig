@@ -134,6 +134,7 @@ pub fn main() !void {
     try cpu0_node.add_property_string("compatible", "riscv", a);
     try cpu0_node.add_property_string("device_type", "cpu", a);
     try cpu0_node.add_property_u32("reg", 0, a);
+    try cpu0_node.add_property_string("riscv,isa", "rv64imasu_zicsr_zifencei", a);
     try cpu0_node.add_property_string("riscv,isa-base", "rv64i", a);
     try cpu0_node.add_property_string("riscv,extensions", "i\x00m\x00a\x00zicsr\x00zifencei", a);
     try cpu0_node.add_property_string("mmu-type", "riscv,none", a);
