@@ -12,7 +12,7 @@ const eql = std.mem.eql;
 
 const help_text =
     \\imasu64 is a RISC-V 64-bit System Emulator
-    \\(isa string: rv64imau_zicsr_zifencei)
+    \\(isa string: rv64imasu_zicsr_zifencei)
     \\
     \\usage: imasu64 [ -i <image> ] [ -m, --memory <memory size> ] [ --dtb ] [ --ctrlc ] [ -h, --help ]
     \\
