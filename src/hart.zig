@@ -145,11 +145,11 @@ fn faulty_virtual_addr(hart: *Hart, instruction: Instruction) xlen {
     return switch (instruction) {
         .AMO => |inst| hart.x[inst.rs1],
         .I => |inst| switch (inst.opcode) {
-            .jalr => hart.x[inst.rs1] +% inst.imm & ~@as(xlen, 0b1),
-            .lb, .lh, .lw, .ld, .lbu, .lhu, .lwu => hart.x[inst.rs1] +% inst.imm,
+            .jalr => hart.x[inst.rs1] +% sext_to_xlen(inst.imm) & ~@as(xlen, 0b1),
+            .lb, .lh, .lw, .ld, .lbu, .lhu, .lwu => hart.x[inst.rs1] +% sext_to_xlen(inst.imm),
             else => unreachable,
         },
-        .S => |inst| hart.x[inst.rs1] +% inst.imm,
+        .S => |inst| hart.x[inst.rs1] +% sext_to_xlen(inst.imm),
         else => unreachable,
     };
 }
