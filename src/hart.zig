@@ -270,7 +270,7 @@ fn mret(hart: *Hart) !void {
 
 // perform 'sret'
 fn sret(hart: *Hart) !void {
-    if (hart.priv != .S) return error.IllegalInstruction;
+    if (hart.priv == .U) return error.IllegalInstruction;
     // pop privilege from spp, spp becomes lowest privilege level
     hart.priv = if (hart.csrs.status.spp) .S else .U;
     hart.csrs.status.spp = false;
@@ -549,8 +549,8 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     hart.pc +%= 4;
                     return;
                 },
-                .@"sfence.vma" => { // no-op, but can only be called in S-mode
-                    if (hart.priv != .S) return Exception.IllegalInstruction;
+                .@"sfence.vma" => { // no-op, but cannot be called in U-mode
+                    if (hart.priv == .U) return Exception.IllegalInstruction;
                     hart.pc +%= 4;
                     return;
                 },
