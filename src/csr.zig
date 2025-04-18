@@ -31,6 +31,7 @@ status: struct { // status register
     mpie: bool, // M-mode previous interrupt enable
     spp: bool, // S-mode previous privilege
     mpp: Privilege, // M-mode previous privilege
+    mprv: bool, // Modify privilege
     // sum, mxr are stored in the MMU
 },
 ie: struct { // Interrupt enable register
@@ -64,6 +65,7 @@ inline fn mstatus_read(csrs: CSRs) xlen {
         | set_bit(csrs.status.mpie, 7)
         | set_bit(csrs.status.spp, 8)
         | @as(xlen, @intFromEnum(csrs.status.mpp)) << 11
+        | set_bit(csrs.status.mprv, 17)
         | set_bit(csrs.mmu.sum, 18)
         | set_bit(csrs.mmu.mxr, 19);
     // zig fmt: on
@@ -87,6 +89,7 @@ inline fn mstatus_write(csrs: *CSRs, v: xlen) void {
     csrs.status.spp = get_bit(v, 8);
     const mpp: u2 = @truncate((v >> 11) & 0b11);
     if (mpp != 0b10) csrs.status.mpp = @enumFromInt(mpp);
+    csrs.status.mprv = get_bit(v, 17);
     csrs.mmu.sum = get_bit(v, 18);
     csrs.mmu.mxr = get_bit(v, 19);
 }
@@ -211,6 +214,7 @@ pub fn create() CSRs {
             .mpie = false,
             .spp = false,
             .mpp = .U,
+            .mprv = false,
         },
         .ie = .{
             .msie = false,

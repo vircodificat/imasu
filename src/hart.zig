@@ -281,6 +281,16 @@ fn sret(hart: *Hart) !void {
     return;
 }
 
+inline fn effective_priv(hart: *const Hart) Privilege {
+    if (hart.priv == .M and hart.csrs.status.mprv) {
+        @branchHint(.cold);
+        return hart.csrs.status.mpp;
+    } else {
+        @branchHint(.likely);
+        return hart.priv;
+    }
+}
+
 fn execute(hart: *Hart, instruction: Instruction) Exception!void {
     switch (instruction) {
         .R => |inst| {
@@ -328,23 +338,24 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
         .AMO => |inst| {
             // atomic instructions are not performed atomically
             // as there is only one hart executing instructions
+            const epriv = effective_priv(hart);
             const x_rs1 = hart.x[inst.rs1];
             const x_rs2 = hart.x[inst.rs2];
             const result: xlen = switch (inst.opcode) {
                 .@"lr.w" => lrw: {
                     defer hart.res = .{ .addr = x_rs1, .double = false };
-                    break :lrw sext_to_xlen(try hart.mmu.load(u32, x_rs1, hart.priv));
+                    break :lrw sext_to_xlen(try hart.mmu.load(u32, x_rs1, epriv));
                 },
                 .@"lr.d" => lrd: {
                     defer hart.res = .{ .addr = x_rs1, .double = true };
-                    break :lrd try hart.mmu.load(u64, x_rs1, hart.priv);
+                    break :lrd try hart.mmu.load(u64, x_rs1, epriv);
                 },
                 .@"sc.w" => scw: {
                     defer hart.res = null;
                     errdefer hart.res = null;
                     if (hart.res) |res| {
                         if ((x_rs1 == res.addr) or (res.double and x_rs1 == res.addr + 4)) {
-                            try hart.mmu.store(u32, x_rs1, word(x_rs2), hart.priv);
+                            try hart.mmu.store(u32, x_rs1, word(x_rs2), epriv);
                             break :scw 0; // success
                         }
                     }
@@ -355,7 +366,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     errdefer hart.res = null;
                     if (hart.res) |res| {
                         if (res.double and x_rs1 == res.addr) {
-                            try hart.mmu.store(u64, x_rs1, x_rs2, hart.priv);
+                            try hart.mmu.store(u64, x_rs1, x_rs2, epriv);
                             break :scd 0; // success
                         }
                     }
@@ -371,7 +382,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                 .@"amominu.w",
                 .@"amomaxu.w",
                 => |amo_w| amo_w: {
-                    const load = try hart.mmu.load(u32, x_rs1, hart.priv);
+                    const load = try hart.mmu.load(u32, x_rs1, epriv);
                     const w_rs2 = word(x_rs2);
                     const store = switch (amo_w) {
                         .@"amoswap.w" => w_rs2,
@@ -385,7 +396,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                         .@"amomaxu.w" => @max(load, w_rs2),
                         else => unreachable,
                     };
-                    try hart.mmu.store(u32, x_rs1, store, hart.priv);
+                    try hart.mmu.store(u32, x_rs1, store, epriv);
                     break :amo_w sext_to_xlen(load);
                 },
                 .@"amoswap.d",
@@ -398,7 +409,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                 .@"amominu.d",
                 .@"amomaxu.d",
                 => |amo_d| amo_d: {
-                    const load = try hart.mmu.load(u64, x_rs1, hart.priv);
+                    const load = try hart.mmu.load(u64, x_rs1, epriv);
                     const store = switch (amo_d) {
                         .@"amoswap.d" => x_rs2,
                         .@"amoadd.d" => load +% x_rs2,
@@ -411,7 +422,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                         .@"amomaxu.d" => @max(load, x_rs2),
                         else => unreachable,
                     };
-                    try hart.mmu.store(u64, x_rs1, store, hart.priv);
+                    try hart.mmu.store(u64, x_rs1, store, epriv);
                     break :amo_d load;
                 },
             };
@@ -424,6 +435,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
             const imm = sext_to_xlen(inst.imm);
             const shamt6: u6 = @truncate(imm);
             const shamt5: u5 = @truncate(imm);
+            const epriv = effective_priv(hart);
             defer hart.x[0] = 0;
             hart.x[inst.rd] = switch (inst.opcode) {
                 .jalr => {
@@ -432,13 +444,13 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     hart.pc = jump_target;
                     return;
                 },
-                .lb => sext_to_xlen(try hart.mmu.load(u8, x_rs1 +% imm, hart.priv)),
-                .lh => sext_to_xlen(try hart.mmu.load(u16, x_rs1 +% imm, hart.priv)),
-                .lw => sext_to_xlen(try hart.mmu.load(u32, x_rs1 +% imm, hart.priv)),
-                .ld => try hart.mmu.load(u64, x_rs1 +% imm, hart.priv),
-                .lbu => zext_to_xlen(try hart.mmu.load(u8, x_rs1 +% imm, hart.priv)),
-                .lhu => zext_to_xlen(try hart.mmu.load(u16, x_rs1 +% imm, hart.priv)),
-                .lwu => zext_to_xlen(try hart.mmu.load(u32, x_rs1 +% imm, hart.priv)),
+                .lb => sext_to_xlen(try hart.mmu.load(u8, x_rs1 +% imm, epriv)),
+                .lh => sext_to_xlen(try hart.mmu.load(u16, x_rs1 +% imm, epriv)),
+                .lw => sext_to_xlen(try hart.mmu.load(u32, x_rs1 +% imm, epriv)),
+                .ld => try hart.mmu.load(u64, x_rs1 +% imm, epriv),
+                .lbu => zext_to_xlen(try hart.mmu.load(u8, x_rs1 +% imm, epriv)),
+                .lhu => zext_to_xlen(try hart.mmu.load(u16, x_rs1 +% imm, epriv)),
+                .lwu => zext_to_xlen(try hart.mmu.load(u32, x_rs1 +% imm, epriv)),
                 .addi => x_rs1 +% imm,
                 .addiw => sext_to_xlen(word(x_rs1) +% word(imm)),
                 .slti => if (signed(x_rs1) < signed(imm)) 1 else 0,
@@ -498,10 +510,10 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
             const addr = x_rs1 +% imm;
             const epriv = effective_priv(hart);
             switch (inst.opcode) {
-                .sb => try hart.mmu.store(u8, addr, @truncate(x_rs2), hart.priv),
-                .sh => try hart.mmu.store(u16, addr, @truncate(x_rs2), hart.priv),
-                .sw => try hart.mmu.store(u32, addr, @truncate(x_rs2), hart.priv),
-                .sd => try hart.mmu.store(u64, addr, x_rs2, hart.priv),
+                .sb => try hart.mmu.store(u8, addr, @truncate(x_rs2), epriv),
+                .sh => try hart.mmu.store(u16, addr, @truncate(x_rs2), epriv),
+                .sw => try hart.mmu.store(u32, addr, @truncate(x_rs2), epriv),
+                .sd => try hart.mmu.store(u64, addr, x_rs2, epriv),
             }
             hart.pc +%= 4;
             return;
