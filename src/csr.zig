@@ -34,6 +34,7 @@ status: struct { // status register
     mprv: bool, // Modify privilege
     // sum, mxr are stored in the MMU
 },
+medeleg: [16]bool, // M-mode exception delegation register
 ie: struct { // Interrupt enable register
     msie: bool, // M-mode Software interrupt enable
     mtie: bool, // M-mode Timer interrupt enable
@@ -100,6 +101,21 @@ inline fn sstatus_write(csrs: *CSRs, v: xlen) void {
     csrs.status.spp = get_bit(v, 8);
     csrs.mmu.sum = get_bit(v, 18);
     csrs.mmu.mxr = get_bit(v, 19);
+}
+
+inline fn medeleg_read(csrs: CSRs) xlen {
+    var v: xlen = 0;
+    for (csrs.medeleg, 0..) |deleg, idx| {
+        v |= set_bit(deleg, @truncate(idx));
+    }
+    return v;
+}
+
+inline fn medeleg_write(csrs: *CSRs, v: xlen) void {
+    for (0..16) |idx| {
+        if (idx == 10 or idx == 14) continue;
+        csrs.medeleg[idx] = get_bit(v, @truncate(idx));
+    }
 }
 
 inline fn mie_read(csrs: CSRs) xlen {
@@ -216,6 +232,7 @@ pub fn create() CSRs {
             .mpp = .U,
             .mprv = false,
         },
+        .medeleg = .{false} ** 16,
         .ie = .{
             .msie = false,
             .mtie = false,
@@ -275,7 +292,7 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
         csr_satp => csrs.satp_read(),
         csr_mstatus => csrs.mstatus_read(),
         csr_misa => misa_value,
-        csr_medeleg => 0, // TODO: does not support delegation for now
+        csr_medeleg => csrs.medeleg_read(),
         csr_mideleg => 0, // TODO: does not support delegation for now
         csr_mie => csrs.mie_read(),
         csr_mtvec => csrs.mtvec.base
@@ -334,7 +351,7 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
         csr_satp => csrs.satp_write(v),
         csr_mstatus => csrs.mstatus_write(v),
         csr_misa => {}, // misa is read-only
-        csr_medeleg => {}, // TODO: does not support delegation for now
+        csr_medeleg => csrs.medeleg_write(v),
         csr_mideleg => {}, // TODO: does not support delegation for now
         csr_mie => csrs.mie_write(v),
         csr_mtvec => csrs.mtvec = .{

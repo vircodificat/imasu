@@ -234,23 +234,44 @@ fn trap_on_interrupt(hart: *Hart, interrupt: Interrupt) void {
 
 // take a trap caused by an exception
 fn trap_on_exception(hart: *Hart, err: Exception, xtval: xlen) void {
-    // TODO: S-mode delegation when S-mode is implemented
+    // exceptions can only be delegated to S-mode if they are set to in medeleg
+    // and the exception did not occur in M-mode itself
+    const deleg = hart.priv != .M and hart.csrs.medeleg[exception_to_xcause_csr_value(err)];
 
-    // push mie to mpie, mie becomes false
-    hart.csrs.status.mpie = hart.csrs.status.mie;
-    hart.csrs.status.mie = false;
-    // push current privilege to mpp, privilege becomes M-mode
-    hart.csrs.status.mpp = hart.priv;
-    hart.priv = .M;
-    // store exception cause and value
-    hart.csrs.mtval = xtval;
-    hart.csrs.mcause = exception_to_xcause_csr_value(err);
-    // store pc into mepc, set pc to trap vector base
-    // as this is the trap procedure for exceptions not interrupts,
-    // we always go to the base address
-    hart.csrs.mepc = hart.pc;
-    hart.pc = hart.csrs.mtvec.base;
-    return;
+    if (deleg) { // delegate to S-mode
+        // push sie to spie, sie becomes false
+        hart.csrs.status.spie = hart.csrs.status.sie;
+        hart.csrs.status.sie = false;
+        // push current privilege to spp (U-mode = false, otherwise true),
+        // privilege becomes S-mode
+        hart.csrs.status.spp = (hart.priv == .M or hart.priv == .S);
+        hart.priv = .S;
+        // store exception cause and value
+        hart.csrs.stval = xtval;
+        hart.csrs.scause = exception_to_xcause_csr_value(err);
+        // store pc into sepc, set pc to trap vector base
+        // as this is the trap procedure for exceptions not interrupts,
+        // we always go to the base address
+        hart.csrs.sepc = hart.pc;
+        hart.pc = hart.csrs.stvec.base;
+        return;
+    } else { // no delegation, handle in M-mode
+        // push mie to mpie, mie becomes false
+        hart.csrs.status.mpie = hart.csrs.status.mie;
+        hart.csrs.status.mie = false;
+        // push current privilege to mpp, privilege becomes M-mode
+        hart.csrs.status.mpp = hart.priv;
+        hart.priv = .M;
+        // store exception cause and value
+        hart.csrs.mtval = xtval;
+        hart.csrs.mcause = exception_to_xcause_csr_value(err);
+        // store pc into mepc, set pc to trap vector base
+        // as this is the trap procedure for exceptions not interrupts,
+        // we always go to the base address
+        hart.csrs.mepc = hart.pc;
+        hart.pc = hart.csrs.mtvec.base;
+        return;
+    }
 }
 
 // perform 'mret'
