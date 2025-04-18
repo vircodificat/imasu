@@ -256,6 +256,8 @@ fn trap_on_exception(hart: *Hart, err: Exception, xtval: xlen) void {
 // perform 'mret'
 fn mret(hart: *Hart) !void {
     if (hart.priv != .M) return error.IllegalInstruction;
+    // unset mprv only if mret will go out of M-mode
+    if (hart.csrs.status.mpp != .M) hart.csrs.status.mprv = false;
     // pop privilege from mpp, mpp becomes lowest privilege level
     hart.priv = hart.csrs.status.mpp;
     hart.csrs.status.mpp = .U;
@@ -273,6 +275,8 @@ fn sret(hart: *Hart) !void {
     // pop privilege from spp, spp becomes lowest privilege level
     hart.priv = if (hart.csrs.status.spp) .S else .U;
     hart.csrs.status.spp = false;
+    // unset mprv
+    hart.csrs.status.mprv = false;
     // pop spie to sie, spie becomes set
     hart.csrs.status.sie = hart.csrs.status.spie;
     hart.csrs.status.spie = true;
