@@ -6,6 +6,7 @@ const UART = @import("devices/uart.zig");
 const ROM = @import("devices/rom.zig");
 const Syscon = @import("devices/syscon.zig");
 const Memory = @import("memory.zig");
+const MMU = @import("mmu.zig");
 const Hart = @import("hart.zig");
 const std = @import("std");
 const eql = std.mem.eql;
@@ -149,6 +150,8 @@ pub fn main() !void {
 
     // create memory with ram
     var mem = Memory.create(ram);
+    // create an MMU from memory
+    var mmu = MMU.create(&mem);
 
     // create a hart
     var hart = Hart.create();
@@ -193,6 +196,8 @@ pub fn main() !void {
         .mmio_len = dtb_sz,
     };
 
+    hart.mmu = &mmu;
+    hart.csrs.mmu = &mmu;
     hart.csrs.time_csr_timer = &clint;
     clint.interrupt_target = &hart;
     plic.ctx0 = &hart;

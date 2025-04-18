@@ -23,45 +23,17 @@ inline fn access_bounded(addr: u64, sz: u64, base: u64, len: u64) bool {
     return addr >= base and addr <= base + len - sz;
 }
 
-// fetch instruction bytes from address
-// instruction fetch is 4 bytes long
-// instruction fetch is not supported from mmio devices
-pub fn fetch(memory: Memory, addr: u64) !u32 {
-    // check alignment
-    if (addr % 4 != 0) {
-        @branchHint(.cold);
-        return error.InstMisaligned;
-    }
-    // ram
-    if (access_bounded(addr, 4, mem_base, memory.mem.len)) {
-        @branchHint(.likely);
-        const offset = addr - mem_base;
-        const v = std.mem.readInt(u32, memory.mem[offset .. offset + 4][0..4], .little);
-        return v;
-    }
-    // fault
-    return error.LoadAccessFault;
-}
-
-// load power-of-two bytes from address
+// load power-of-two bytes from physical address
 // will delegate to mmio devices
-fn load(memory: Memory, comptime T: type, addr: u64) !T {
+pub fn load(memory: Memory, comptime T: type, addr: u64) !T {
     const sz = @divExact(@typeInfo(T).int.bits, 8);
-    if (comptime !std.math.isPowerOfTwo(sz) or @typeInfo(T).int.signedness == .signed) {
-        @compileError("Memory access must be a power of two number of bytes");
-    }
-
-    // check alignment
-    if (addr % sz != 0) {
-        @branchHint(.unlikely);
-        return error.LoadMisaligned;
-    }
-
+    std.debug.assert(addr % sz == 0);
     // ram
     if (access_bounded(addr, sz, mem_base, memory.mem.len)) {
         @branchHint(.likely);
         const offset = addr - mem_base;
-        const v = std.mem.readInt(T, memory.mem[offset .. offset + sz][0..sz], .little);
+        const slice = memory.mem[offset .. offset + sz][0..sz];
+        const v = std.mem.readInt(T, slice, .little);
         return v;
     }
     // mmio devices
@@ -75,25 +47,17 @@ fn load(memory: Memory, comptime T: type, addr: u64) !T {
     return error.LoadAccessFault;
 }
 
-// store power-of-two bytes at address
+// store power-of-two bytes at physical address
 // will delegate to mmio devices
-fn store(memory: Memory, comptime T: type, addr: u64, v: T) !void {
+pub fn store(memory: Memory, comptime T: type, addr: u64, v: T) !void {
     const sz = @divExact(@typeInfo(T).int.bits, 8);
-    if (comptime !std.math.isPowerOfTwo(sz) or @typeInfo(T).int.signedness == .signed) {
-        @compileError("Memory access must be a power of two number of bytes");
-    }
-
-    // check alignment
-    if (addr % sz != 0) {
-        @branchHint(.unlikely);
-        return error.StoreMisaligned;
-    }
-
+    std.debug.assert(addr % sz == 0);
     // ram
     if (access_bounded(addr, sz, mem_base, memory.mem.len)) {
         @branchHint(.likely);
         const offset = addr - mem_base;
-        std.mem.writeInt(T, memory.mem[offset .. offset + sz][0..sz], v, .little);
+        const slice = memory.mem[offset .. offset + sz][0..sz];
+        std.mem.writeInt(T, slice, v, .little);
         return;
     }
     // device mmio
@@ -108,29 +72,19 @@ fn store(memory: Memory, comptime T: type, addr: u64, v: T) !void {
     return error.StoreAccessFault;
 }
 
-// public interface for loads/stores
-
-pub fn load_byte(memory: Memory, addr: u64) !u8 {
-    return memory.load(u8, addr);
-}
-pub fn load_half(memory: Memory, addr: u64) !u16 {
-    return memory.load(u16, addr);
-}
-pub fn load_word(memory: Memory, addr: u64) !u32 {
-    return memory.load(u32, addr);
-}
-pub fn load_double(memory: Memory, addr: u64) !u64 {
-    return memory.load(u64, addr);
-}
-pub fn store_byte(memory: Memory, addr: u64, v: u8) !void {
-    return memory.store(u8, addr, v);
-}
-pub fn store_half(memory: Memory, addr: u64, v: u16) !void {
-    return memory.store(u16, addr, v);
-}
-pub fn store_word(memory: Memory, addr: u64, v: u32) !void {
-    return memory.store(u32, addr, v);
-}
-pub fn store_double(memory: Memory, addr: u64, v: u64) !void {
-    return memory.store(u64, addr, v);
+// fetch instruction bytes from physical address
+// instruction fetch is 4 bytes long
+// instruction fetch is not supported from mmio devices
+pub fn fetch(memory: Memory, addr: u64) !u32 {
+    std.debug.assert(addr % 4 == 0);
+    // ram
+    if (access_bounded(addr, 4, mem_base, memory.mem.len)) {
+        @branchHint(.likely);
+        const offset = addr - mem_base;
+        const slice = memory.mem[offset .. offset + 4][0..4];
+        const v = std.mem.readInt(u32, slice, .little);
+        return v;
+    }
+    // fault
+    return error.InstAccessFault;
 }

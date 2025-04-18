@@ -4,6 +4,7 @@ const Instruction = @import("instruction.zig").Instruction;
 const Exception = @import("exception.zig").Exception;
 const Privilege = @import("priv.zig").Privilege;
 const Memory = @import("memory.zig");
+const MMU = @import("mmu.zig");
 const CSRs = @import("csr.zig");
 const decode = @import("decode.zig");
 const debug = @import("debug.zig");
@@ -18,16 +19,14 @@ x: [32]xlen, // general purpose registers
 pc: xlen, // program counter
 csrs: CSRs, // control and status registers
 priv: Privilege, // privilege level
+mmu: *MMU, // Handle to the memory management unit
 res: ?struct { // reservation set for lr/sc
     addr: xlen, // address
     double: bool, // reservation is for a double or word
 },
-
 wfi: bool, // called wfi last instruction
 mutex: std.Thread.Mutex,
 cond: std.Thread.Condition,
-
-mem: *Memory, // handle to main memory
 
 pub fn create() Hart {
     return Hart{
@@ -35,8 +34,8 @@ pub fn create() Hart {
         .pc = Memory.mem_base,
         .csrs = CSRs.create(),
         .priv = .M,
+        .mmu = undefined,
         .res = null,
-        .mem = undefined,
         .wfi = false,
         .mutex = std.Thread.Mutex{},
         .cond = std.Thread.Condition{},
@@ -98,7 +97,7 @@ pub fn step(hart: *Hart) void {
     hart.wfi = false;
     if (!hart.csrs.countinhibit.cy) hart.csrs.cycle +%= 1;
     // fetch instruction
-    const inst_bits = hart.mem.fetch(hart.pc) catch |err| {
+    const inst_bits = hart.mmu.fetch(hart.pc, hart.priv) catch |err| {
         // on instruction address misaligned or instruction fetch access/page fault,
         // store the faulting virtual address in xtval,
         // which is the value of the program counter
@@ -334,18 +333,18 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
             const result: xlen = switch (inst.opcode) {
                 .@"lr.w" => lrw: {
                     defer hart.res = .{ .addr = x_rs1, .double = false };
-                    break :lrw sext_to_xlen(try hart.mem.load_word(x_rs1));
+                    break :lrw sext_to_xlen(try hart.mmu.load(u32, x_rs1, hart.priv));
                 },
                 .@"lr.d" => lrd: {
                     defer hart.res = .{ .addr = x_rs1, .double = true };
-                    break :lrd try hart.mem.load_double(x_rs1);
+                    break :lrd try hart.mmu.load(u64, x_rs1, hart.priv);
                 },
                 .@"sc.w" => scw: {
                     defer hart.res = null;
                     errdefer hart.res = null;
                     if (hart.res) |res| {
                         if ((x_rs1 == res.addr) or (res.double and x_rs1 == res.addr + 4)) {
-                            try hart.mem.store_word(x_rs1, word(x_rs2));
+                            try hart.mmu.store(u32, x_rs1, word(x_rs2), hart.priv);
                             break :scw 0; // success
                         }
                     }
@@ -356,7 +355,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     errdefer hart.res = null;
                     if (hart.res) |res| {
                         if (res.double and x_rs1 == res.addr) {
-                            try hart.mem.store_double(x_rs1, x_rs2);
+                            try hart.mmu.store(u64, x_rs1, x_rs2, hart.priv);
                             break :scd 0; // success
                         }
                     }
@@ -372,7 +371,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                 .@"amominu.w",
                 .@"amomaxu.w",
                 => |amo_w| amo_w: {
-                    const load = try hart.mem.load_word(x_rs1);
+                    const load = try hart.mmu.load(u32, x_rs1, hart.priv);
                     const w_rs2 = word(x_rs2);
                     const store = switch (amo_w) {
                         .@"amoswap.w" => w_rs2,
@@ -386,7 +385,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                         .@"amomaxu.w" => @max(load, w_rs2),
                         else => unreachable,
                     };
-                    try hart.mem.store_word(x_rs1, store);
+                    try hart.mmu.store(u32, x_rs1, store, hart.priv);
                     break :amo_w sext_to_xlen(load);
                 },
                 .@"amoswap.d",
@@ -399,7 +398,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                 .@"amominu.d",
                 .@"amomaxu.d",
                 => |amo_d| amo_d: {
-                    const load = try hart.mem.load_double(x_rs1);
+                    const load = try hart.mmu.load(u64, x_rs1, hart.priv);
                     const store = switch (amo_d) {
                         .@"amoswap.d" => x_rs2,
                         .@"amoadd.d" => load +% x_rs2,
@@ -412,7 +411,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                         .@"amomaxu.d" => @max(load, x_rs2),
                         else => unreachable,
                     };
-                    try hart.mem.store_double(x_rs1, store);
+                    try hart.mmu.store(u64, x_rs1, store, hart.priv);
                     break :amo_d load;
                 },
             };
@@ -433,13 +432,13 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     hart.pc = jump_target;
                     return;
                 },
-                .lb => sext_to_xlen(try hart.mem.load_byte(x_rs1 +% imm)),
-                .lh => sext_to_xlen(try hart.mem.load_half(x_rs1 +% imm)),
-                .lw => sext_to_xlen(try hart.mem.load_word(x_rs1 +% imm)),
-                .ld => try hart.mem.load_double(x_rs1 +% imm),
-                .lbu => zext_to_xlen(try hart.mem.load_byte(x_rs1 +% imm)),
-                .lhu => zext_to_xlen(try hart.mem.load_half(x_rs1 +% imm)),
-                .lwu => zext_to_xlen(try hart.mem.load_word(x_rs1 +% imm)),
+                .lb => sext_to_xlen(try hart.mmu.load(u8, x_rs1 +% imm, hart.priv)),
+                .lh => sext_to_xlen(try hart.mmu.load(u16, x_rs1 +% imm, hart.priv)),
+                .lw => sext_to_xlen(try hart.mmu.load(u32, x_rs1 +% imm, hart.priv)),
+                .ld => try hart.mmu.load(u64, x_rs1 +% imm, hart.priv),
+                .lbu => zext_to_xlen(try hart.mmu.load(u8, x_rs1 +% imm, hart.priv)),
+                .lhu => zext_to_xlen(try hart.mmu.load(u16, x_rs1 +% imm, hart.priv)),
+                .lwu => zext_to_xlen(try hart.mmu.load(u32, x_rs1 +% imm, hart.priv)),
                 .addi => x_rs1 +% imm,
                 .addiw => sext_to_xlen(word(x_rs1) +% word(imm)),
                 .slti => if (signed(x_rs1) < signed(imm)) 1 else 0,
@@ -497,11 +496,12 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
             const x_rs2 = hart.x[inst.rs2];
             const imm = sext_to_xlen(inst.imm);
             const addr = x_rs1 +% imm;
+            const epriv = effective_priv(hart);
             switch (inst.opcode) {
-                .sb => try hart.mem.store_byte(addr, @truncate(x_rs2)),
-                .sh => try hart.mem.store_half(addr, @truncate(x_rs2)),
-                .sw => try hart.mem.store_word(addr, @truncate(x_rs2)),
-                .sd => try hart.mem.store_double(addr, x_rs2),
+                .sb => try hart.mmu.store(u8, addr, @truncate(x_rs2), hart.priv),
+                .sh => try hart.mmu.store(u16, addr, @truncate(x_rs2), hart.priv),
+                .sw => try hart.mmu.store(u32, addr, @truncate(x_rs2), hart.priv),
+                .sd => try hart.mmu.store(u64, addr, x_rs2, hart.priv),
             }
             hart.pc +%= 4;
             return;

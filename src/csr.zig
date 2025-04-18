@@ -2,6 +2,7 @@
 
 const Exception = @import("exception.zig").Exception;
 const Privilege = @import("priv.zig").Privilege;
+const MMU = @import("mmu.zig");
 const CLINT = @import("devices/clint.zig");
 const xlen = @import("hart.zig").xlen;
 
@@ -30,6 +31,7 @@ status: struct { // status register
     mpie: bool, // M-mode previous interrupt enable
     spp: bool, // S-mode previous privilege
     mpp: Privilege, // M-mode previous privilege
+    // sum, mxr are stored in the MMU
 },
 ie: struct { // Interrupt enable register
     msie: bool, // M-mode Software interrupt enable
@@ -51,6 +53,7 @@ countinhibit: struct { // Counter inhibit register
     cy: bool, // M-mode inhibit cycle counter
 },
 cycle: xlen, // Cycles counter for cycle CSR
+mmu: *MMU, // MMU for setting/reading MMU settings
 time_csr_timer: *CLINT, // Timer for time CSR
 
 inline fn mstatus_read(csrs: CSRs) xlen {
@@ -60,7 +63,9 @@ inline fn mstatus_read(csrs: CSRs) xlen {
         | set_bit(csrs.status.spie, 5)
         | set_bit(csrs.status.mpie, 7)
         | set_bit(csrs.status.spp, 8)
-        | @as(xlen, @intFromEnum(csrs.status.mpp)) << 11;
+        | @as(xlen, @intFromEnum(csrs.status.mpp)) << 11
+        | set_bit(csrs.mmu.sum, 18)
+        | set_bit(csrs.mmu.mxr, 19);
     // zig fmt: on
 }
 
@@ -68,7 +73,9 @@ inline fn sstatus_read(csrs: CSRs) xlen {
     // zig fmt: off
     return set_bit(csrs.status.sie, 1)
         | set_bit(csrs.status.spie, 5)
-        | set_bit(csrs.status.spp, 8);
+        | set_bit(csrs.status.spp, 8)
+        | set_bit(csrs.mmu.sum, 18)
+        | set_bit(csrs.mmu.mxr, 19);
     // zig fmt: on
 }
 
@@ -80,12 +87,16 @@ inline fn mstatus_write(csrs: *CSRs, v: xlen) void {
     csrs.status.spp = get_bit(v, 8);
     const mpp: u2 = @truncate((v >> 11) & 0b11);
     if (mpp != 0b10) csrs.status.mpp = @enumFromInt(mpp);
+    csrs.mmu.sum = get_bit(v, 18);
+    csrs.mmu.mxr = get_bit(v, 19);
 }
 
 inline fn sstatus_write(csrs: *CSRs, v: xlen) void {
     csrs.status.sie = get_bit(v, 1);
     csrs.status.spie = get_bit(v, 5);
     csrs.status.spp = get_bit(v, 8);
+    csrs.mmu.sum = get_bit(v, 18);
+    csrs.mmu.mxr = get_bit(v, 19);
 }
 
 inline fn mie_read(csrs: CSRs) xlen {
@@ -116,6 +127,25 @@ inline fn mip_read(csrs: CSRs) xlen {
 inline fn sip_read(csrs: CSRs) xlen {
     _ = csrs;
     return 0; // TODO: do we support supervisor interrupts?
+}
+
+inline fn satp_read(csrs: CSRs) xlen {
+    const mode: xlen = switch (csrs.mmu.mode) {
+        .Bare => 0,
+        .Sv39 => 8,
+    };
+    return csrs.mmu.ppn | mode << 60;
+}
+
+inline fn satp_write(csrs: *CSRs, v: xlen) void {
+    // the entire write to satp has no effect if mode is not supported
+    const mode: u4 = @truncate(v >> 60);
+    csrs.mmu.mode = switch (mode) {
+        0 => .Bare,
+        8 => .Sv39,
+        else => return,
+    };
+    csrs.mmu.ppn = v & 0xfff_ffff_ffff;
 }
 
 // CSR numbering
@@ -200,6 +230,7 @@ pub fn create() CSRs {
         },
         .countinhibit = .{ .cy = false },
         .cycle = 0,
+        .mmu = undefined,
         .time_csr_timer = undefined,
     };
 }
@@ -214,8 +245,8 @@ inline fn set_bit(v: bool, bit: u6) xlen {
 
 // zig fmt: off
 const misa_value: xlen = @as(xlen, 0b10) << 62 // xlen=64
-    | 0b10000101000001000100000001;
-// isa: zyxwvutsrqponmlkjihgfedcba, currently implemented bits: imasuz
+    | 0b10000101000001000100000001; // imasuz
+// isa: zyxwvutsrqponmlkjihgfedcba
 // // zig fmt: on
 
 const Illegal = Exception.IllegalInstruction;
@@ -237,7 +268,7 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
         csr_scause => csrs.scause,
         csr_stval => csrs.stval,
         csr_sip => csrs.sip_read(),
-        csr_satp => 0, // TODO: no address translation (Bare) for now
+        csr_satp => csrs.satp_read(),
         csr_mstatus => csrs.mstatus_read(),
         csr_misa => misa_value,
         csr_medeleg => 0, // TODO: does not support delegation for now
@@ -296,7 +327,7 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
         csr_scause => csrs.scause = v,
         csr_stval => csrs.stval = v,
         csr_sip =>  {}, // sip is read-only
-        csr_satp => {}, // TODO: no address translation (Bare) for now
+        csr_satp => csrs.satp_write(v),
         csr_mstatus => csrs.mstatus_write(v),
         csr_misa => {}, // misa is read-only
         csr_medeleg => {}, // TODO: does not support delegation for now
