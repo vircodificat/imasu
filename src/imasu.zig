@@ -13,7 +13,6 @@ const eql = std.mem.eql;
 
 const help_text =
     \\imasu64 is a RISC-V 64-bit System Emulator
-    \\(isa string: rv64imasu_zicsr_zifencei)
     \\
     \\usage: imasu64 [ -i <image> ] [ -m, --memory <memory size> ] [ --dtb ] [ --ctrlc ] [ -h, --help ]
     \\
@@ -60,8 +59,8 @@ pub fn main() !void {
 
     var idx: usize = 1;
     while (idx < args.len) : (idx += 1) {
-        const arg: [:0]const u8 = args[idx];
-        const maybe_next: ?[:0]const u8 = if (idx + 1 < args.len) args[idx + 1] else null;
+        const arg = args[idx];
+        const maybe_next = if (idx + 1 < args.len) args[idx + 1] else null;
 
         // -i <image>
         if (eql(u8, arg, "-i")) {

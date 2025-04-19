@@ -7,13 +7,13 @@ const Memory = @import("memory.zig");
 const MMU = @import("mmu.zig");
 const CSRs = @import("csr.zig");
 const decode = @import("decode.zig");
-const debug = @import("debug.zig");
 const std = @import("std");
 const assert = std.debug.assert;
 
 const Hart = @This();
 
 pub const xlen = u64; // integer register width
+
 // hart state:
 x: [32]xlen, // general purpose registers
 pc: xlen, // program counter
@@ -25,6 +25,8 @@ res: ?struct { // reservation set for lr/sc
     double: bool, // reservation is for a double or word
 },
 wfi: bool, // called wfi last instruction
+
+// thread variables:
 mutex: std.Thread.Mutex,
 cond: std.Thread.Condition,
 

@@ -351,7 +351,7 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
             | @intFromBool(csrs.mtvec.vectored),
         csr_mcounteren => set_bit(csrs.counteren.mcy, 0)
             | set_bit(csrs.counteren.mtm, 1),
-        csr_menvcfg => 0, // TODO
+        csr_menvcfg => 0, // we do not implement any of menvcfg
         csr_mcountinhibit => set_bit(csrs.countinhibit.cy, 0),
         csr_mscratch => csrs.mscratch,
         csr_mepc => csrs.mepc,
@@ -361,12 +361,15 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
         csr_cycle => switch (priv) {
             .M => csrs.cycle,
             .S => if (csrs.counteren.mcy) csrs.cycle else Illegal,
-            .U => if (csrs.counteren.mcy and csrs.counteren.scy) csrs.cycle else Illegal,
+            .U => if (csrs.counteren.mcy and csrs.counteren.scy)
+                csrs.cycle else Illegal,
         },
         csr_time => switch (priv) {
             .M => csrs.time_csr_timer.mtime,
-            .S => if (csrs.counteren.mtm) csrs.time_csr_timer.mtime else Illegal,
-            .U => if (csrs.counteren.mtm and csrs.counteren.stm) csrs.time_csr_timer.mtime else Illegal,
+            .S => if (csrs.counteren.mtm)
+                csrs.time_csr_timer.mtime else Illegal,
+            .U => if (csrs.counteren.mtm and csrs.counteren.stm)
+                csrs.time_csr_timer.mtime else Illegal,
         },
         csr_mvendorid => 0,
         csr_marchid => 0,
@@ -414,7 +417,7 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
             csrs.counteren.mcy = get_bit(v, 0);
             csrs.counteren.mtm = get_bit(v, 1);
         },
-        csr_menvcfg => {}, // TODO
+        csr_menvcfg => {}, // we do not implement any of menvcfg
         csr_mcountinhibit => csrs.countinhibit = .{ .cy = get_bit(v, 0) },
         csr_mscratch => csrs.mscratch = v,
         csr_mepc => csrs.mepc = v,
