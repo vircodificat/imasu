@@ -273,16 +273,16 @@ fn generate_devicetree(mem_size: usize, a: std.mem.Allocator) ![]const u8 {
     try cpu0.add_u32_prop("reg", 0, a);
     try cpu0.add_string_prop(
         "riscv,isa",
-        "rv64ima_zicsr_zifencei",
+        "rv64ima_zicsr_zifencei_svade",
         a,
     );
     try cpu0.add_string_prop("riscv,isa-base", "rv64i", a);
     try cpu0.add_string_array_prop(
         "riscv,extensions",
-        &.{ "i", "m", "a", "zicsr", "zifencei" },
+        &.{ "i", "m", "a", "zicsr", "zifencei", "svade" },
         a,
     );
-    try cpu0.add_string_prop("mmu-type", "riscv,none", a);
+    try cpu0.add_string_prop("mmu-type", "riscv,sv39", a);
 
     var cpu0_intc = DT.create_node("interrupt-controller");
     const cpu0_intc_phandle = next_phandle;
