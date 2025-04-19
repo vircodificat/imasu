@@ -35,14 +35,22 @@ status: struct { // status register
     // sum, mxr are stored in the MMU
 },
 medeleg: [16]bool, // M-mode exception delegation register
+mideleg: struct { // M-mode interrupt delegation register
+    sti: bool, // S-mode Timer interrupt delegate
+    sei: bool, // S-mode External interrupt delegate
+},
 ie: struct { // Interrupt enable register
     msie: bool, // M-mode Software interrupt enable
+    stie: bool, // S-mode Timer interrupt enable
     mtie: bool, // M-mode Timer interrupt enable
+    seie: bool, // S-mode External interrupt enable
     meie: bool, // M-mode External interrupt enable
 },
 ip: struct { // Interrupt pending register
     msip: bool, // M-mode Software interrupt pending
+    stip: bool, // S-mode Timer interrupt pending
     mtip: bool, // M-mode Timer interrupt pending
+    seip: bool, // S-mode External interrupt pending
     meip: bool, // M-mode External interrupt pending
 },
 counteren: struct { // Counter-enable registers
@@ -118,34 +126,70 @@ inline fn medeleg_write(csrs: *CSRs, v: xlen) void {
     }
 }
 
+inline fn mideleg_read(csrs: CSRs) xlen {
+    return set_bit(csrs.mideleg.sti, 5) | set_bit(csrs.mideleg.sei, 9);
+}
+
+inline fn mideleg_write(csrs: *CSRs, v: xlen) void {
+    csrs.mideleg.sti = get_bit(v, 5);
+    csrs.mideleg.sei = get_bit(v, 9);
+}
+
 inline fn mie_read(csrs: CSRs) xlen {
-    return set_bit(csrs.ie.msie, 3) | set_bit(csrs.ie.mtie, 7) | set_bit(csrs.ie.meie, 11);
+    // zig fmt: off
+    return set_bit(csrs.ie.msie, 3)
+        | set_bit(csrs.ie.stie, 5)
+        | set_bit(csrs.ie.mtie, 7)
+        | set_bit(csrs.ie.seie, 9)
+        | set_bit(csrs.ie.meie, 11);
+    // zig fmt: on
 }
 
 inline fn sie_read(csrs: CSRs) xlen {
-    _ = csrs;
-    return 0; // TODO: do we support supervisor interrupts?
+    // interrupts in sie/sip are only readable if they have been delegated
+    // zig fmt: off
+    return set_bit(csrs.ie.stie and csrs.mideleg.sti, 5)
+        | set_bit(csrs.ie.seie and csrs.mideleg.sei, 9);
+    // zig fmt: on
 }
 
 inline fn mie_write(csrs: *CSRs, v: xlen) void {
     csrs.ie.msie = get_bit(v, 3);
+    csrs.ie.stie = get_bit(v, 5);
     csrs.ie.mtie = get_bit(v, 7);
+    csrs.ie.seie = get_bit(v, 9);
     csrs.ie.meie = get_bit(v, 11);
 }
 
 inline fn sie_write(csrs: *CSRs, v: xlen) void {
-    _ = csrs;
-    _ = v;
-    // TODO: do we support supervisor interrupts?
+    // interrupts in sie are only writable if they have been delegated
+    if (csrs.mideleg.sti) csrs.ie.stie = get_bit(v, 5);
+    if (csrs.mideleg.sei) csrs.ie.seie = get_bit(v, 9);
 }
 
 inline fn mip_read(csrs: CSRs) xlen {
-    return set_bit(csrs.ip.msip, 3) | set_bit(csrs.ip.mtip, 7) | set_bit(csrs.ip.meip, 11);
+    // zig fmt: off
+    return set_bit(csrs.ip.msip, 3)
+        | set_bit(csrs.ip.stip, 5)
+        | set_bit(csrs.ip.mtip, 7)
+        | set_bit(csrs.ip.seip, 9)
+        | set_bit(csrs.ip.meip, 11);
+    // zig fmt: on
+}
+
+inline fn mip_write(csrs: *CSRs, v: xlen) void {
+    // S-mode interrupt bits are writable in mip,
+    // sip itself is read-only
+    csrs.ip.stip = get_bit(v, 5);
+    csrs.ip.seip = get_bit(v, 9);
 }
 
 inline fn sip_read(csrs: CSRs) xlen {
-    _ = csrs;
-    return 0; // TODO: do we support supervisor interrupts?
+    // interrupts in sie/sip are only readabe if they have been delegated
+    // zig fmt: off
+    return set_bit(csrs.mideleg.sti and csrs.ip.stip, 5)
+        | set_bit(csrs.mideleg.sei and csrs.ip.seip, 9);
+    // zig fmt: on
 }
 
 inline fn satp_read(csrs: CSRs) xlen {
@@ -233,14 +277,22 @@ pub fn create() CSRs {
             .mprv = false,
         },
         .medeleg = .{false} ** 16,
+        .mideleg = .{
+            .sti = false,
+            .sei = false,
+        },
         .ie = .{
             .msie = false,
+            .stie = false,
             .mtie = false,
+            .seie = false,
             .meie = false,
         },
         .ip = .{
             .msip = false,
+            .stip = false,
             .mtip = false,
+            .seip = false,
             .meip = false,
         },
         .counteren = .{
@@ -293,7 +345,7 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
         csr_mstatus => csrs.mstatus_read(),
         csr_misa => misa_value,
         csr_medeleg => csrs.medeleg_read(),
-        csr_mideleg => 0, // TODO: does not support delegation for now
+        csr_mideleg => csrs.mideleg_read(),
         csr_mie => csrs.mie_read(),
         csr_mtvec => csrs.mtvec.base
             | @intFromBool(csrs.mtvec.vectored),
@@ -352,7 +404,7 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
         csr_mstatus => csrs.mstatus_write(v),
         csr_misa => {}, // misa is read-only
         csr_medeleg => csrs.medeleg_write(v),
-        csr_mideleg => {}, // TODO: does not support delegation for now
+        csr_mideleg => csrs.mideleg_write(v),
         csr_mie => csrs.mie_write(v),
         csr_mtvec => csrs.mtvec = .{
             .base = v & ~@as(xlen, 0b11),
@@ -368,7 +420,7 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
         csr_mepc => csrs.mepc = v,
         csr_mcause => csrs.mcause = v,
         csr_mtval => csrs.mtval = v,
-        csr_mip => {}, // mip is read-only
+        csr_mip => csrs.mip_write(v),
         else => return Illegal,
     }
     return;

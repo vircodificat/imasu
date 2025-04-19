@@ -125,13 +125,13 @@ pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) !void 
 // should be called while the PLIC mutex is held and after reads/writes
 // that claim or modify pending interrupts
 fn update(plic: *PLIC) void {
-    var int: u32 = 1;
-    var external_interrupt_pending: bool = false;
-    defer plic.ctx0.set_interrupt_pending(.External, external_interrupt_pending);
+    var mexternal_interrupt_pending: bool = false;
+    defer plic.ctx0.set_interrupt_pending(.MachineExternal, mexternal_interrupt_pending);
 
+    var int: u32 = 1;
     while (int < n_interrupts) : (int += 1) {
         if (plic.pending[int] and plic.ctx0_enable[int] and 1 > plic.ctx0_priority_threshold) {
-            external_interrupt_pending = true;
+            mexternal_interrupt_pending = true;
             break;
         }
     }

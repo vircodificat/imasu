@@ -68,9 +68,11 @@ inline fn sext_to_xlen(value: anytype) xlen {
 
 // interrupt types and xcause csr values
 pub const Interrupt = enum(xlen) {
-    Software = 3,
-    Timer = 7,
-    External = 11,
+    MachineSoftware = 3,
+    SupervisorTimer = 5,
+    MachineTimer = 7,
+    SupervisorExternal = 9,
+    MachineExternal = 11,
 };
 
 pub fn task(hart: *Hart) void {
@@ -177,41 +179,75 @@ fn exception_to_xcause_csr_value(err: Exception) xlen {
 // set the hart's interrupt pending bit for some source
 pub fn set_interrupt_pending(hart: *Hart, interrupt: Interrupt, v: bool) void {
     switch (interrupt) {
-        .Software => hart.csrs.ip.msip = v,
-        .Timer => hart.csrs.ip.mtip = v,
-        .External => hart.csrs.ip.meip = v,
+        .MachineSoftware => hart.csrs.ip.msip = v,
+        .SupervisorTimer => hart.csrs.ip.stip = v,
+        .MachineTimer => hart.csrs.ip.mtip = v,
+        .SupervisorExternal => hart.csrs.ip.seip = v,
+        .MachineExternal => hart.csrs.ip.meip = v,
     }
     if (v == true) hart.cond.signal();
 }
 
-// try to take a trap caused by an interrupt
 pub fn try_take_interrupt(hart: *Hart) void {
-    // if the global mie bit is disabled and were in M-mode, do not take any interrupts
-    if (hart.priv == .M and hart.csrs.status.mie == false) return;
-    assert(hart.priv != .M or (hart.priv == .M and hart.csrs.status.mie));
-    // check for and take external interrupts
-    if (hart.csrs.ip.meip and hart.csrs.ie.meie) {
-        @branchHint(.unlikely);
-        hart.trap_on_interrupt(.External);
-        return;
+    // we do not support delegating mei, msi, or mti,
+    // so these interrupts can cause a trap to M-mode if not in M-mode or
+    // in M-mode with the global mie bit enabled
+    const trap_to_m = hart.priv != .M or (hart.priv == .M and hart.csrs.status.mie);
+    if (trap_to_m) {
+        // check for and take M-mode external interrupts
+        if (hart.csrs.ip.meip and hart.csrs.ie.meie) {
+            @branchHint(.unlikely);
+            hart.trap_on_interrupt_m_mode(.MachineExternal);
+            return;
+        }
+        // check for and take M-mode software interrupts
+        if (hart.csrs.ip.msip and hart.csrs.ie.msie) {
+            @branchHint(.unlikely);
+            hart.trap_on_interrupt_m_mode(.MachineSoftware);
+            return;
+        }
+        // check for and take M-mode timer interrupts
+        if (hart.csrs.ip.mtip and hart.csrs.ie.mtie) {
+            @branchHint(.unlikely);
+            hart.trap_on_interrupt_m_mode(.MachineTimer);
+            return;
+        }
+        // check for and take S-mode external interrupts in M-mode if
+        // the corresponding bit is not set in mideleg
+        if (!hart.csrs.mideleg.sei and hart.csrs.ip.seip and hart.csrs.ie.seie) {
+            @branchHint(.unlikely);
+            hart.trap_on_interrupt_m_mode(.SupervisorExternal);
+            return;
+        }
+        // check for and take S-mode timer interrupts in M-mode if
+        // the corresponding bit is not set in mideleg
+        if (!hart.csrs.mideleg.sti and hart.csrs.ip.stip and hart.csrs.ie.stie) {
+            @branchHint(.unlikely);
+            hart.trap_on_interrupt_m_mode(.SupervisorTimer);
+            return;
+        }
     }
-    // check for and take software interrupts
-    if (hart.csrs.ip.msip and hart.csrs.ie.msie) {
-        @branchHint(.unlikely);
-        hart.trap_on_interrupt(.Software);
-        return;
-    }
-    // check for and take timer interrupts
-    if (hart.csrs.ip.mtip and hart.csrs.ie.mtie) {
-        @branchHint(.unlikely);
-        hart.trap_on_interrupt(.Timer);
-        return;
+    // sei, sti can be delegated to S-mode,
+    // so these delegated interrupts can cause a trap to S-mode if in U-mode or
+    // in S-mode with the global sie bit enabled
+    const trap_to_s = hart.priv == .U or (hart.priv == .S and hart.csrs.status.sie);
+    if (trap_to_s) {
+        if (hart.csrs.mideleg.sei and hart.csrs.ip.seip and hart.csrs.ie.seie) {
+            @branchHint(.unlikely);
+            hart.trap_on_interrupt_s_mode(.SupervisorExternal);
+            return;
+        }
+        if (hart.csrs.mideleg.sti and hart.csrs.ip.stip and hart.csrs.ie.stie) {
+            @branchHint(.unlikely);
+            hart.trap_on_interrupt_s_mode(.SupervisorTimer);
+            return;
+        }
     }
 }
 
-// take a trap caused by an interrupt
-fn trap_on_interrupt(hart: *Hart, interrupt: Interrupt) void {
-    assert(hart.csrs.status.mie == true);
+// take a trap to M-mode caused by an interrupt
+fn trap_on_interrupt_m_mode(hart: *Hart, interrupt: Interrupt) void {
+    assert(hart.priv != .M or (hart.priv == .M and hart.csrs.status.mie));
     const xcause_exception_code = @intFromEnum(interrupt);
     // push mie to mpie, mie becomes false
     hart.csrs.status.mpie = hart.csrs.status.mie;
@@ -229,6 +265,29 @@ fn trap_on_interrupt(hart: *Hart, interrupt: Interrupt) void {
     hart.csrs.mepc = hart.pc;
     hart.pc = hart.csrs.mtvec.base;
     if (hart.csrs.mtvec.vectored) hart.pc +%= 4 * xcause_exception_code;
+    return;
+}
+
+// take a trap to S-mode caused by an interrupt
+fn trap_on_interrupt_s_mode(hart: *Hart, interrupt: Interrupt) void {
+    const xcause_exception_code = @intFromEnum(interrupt);
+    // push sie to spie, sie becomes false
+    hart.csrs.status.spie = hart.csrs.status.sie;
+    hart.csrs.status.sie = false;
+    // push current privilege to spp (U-mode = false, otherwise true),
+    // privilege becomes S-mode
+    hart.csrs.status.spp = (hart.priv != .U);
+    hart.priv = .S;
+    // stval is set to 0
+    hart.csrs.stval = 0;
+    // mcause most significant bit is set to 1 to indicate interrupt
+    // and also set the exception code to the right interrupt
+    hart.csrs.scause = @as(xlen, 1 << 63) | xcause_exception_code;
+    // store pc into sepc, set pc to trap vector
+    // as this is an interrupt, set pc based on whether stvec is direct or vectored
+    hart.csrs.sepc = hart.pc;
+    hart.pc = hart.csrs.stvec.base;
+    if (hart.csrs.stvec.vectored) hart.pc +%= 4 * xcause_exception_code;
     return;
 }
 

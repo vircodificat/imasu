@@ -58,7 +58,7 @@ pub fn mmio_reg_write(clint: *CLINT, comptime T: type, reg_addr: u64, v: T) !voi
             else => return Exception.StoreAccessFault,
         },
         u32 => switch (reg_addr) {
-            reg_mswi => clint.interrupt_target.set_interrupt_pending(.Software, v & 0b1 == 0b1),
+            reg_mswi => clint.interrupt_target.set_interrupt_pending(.MachineSoftware, v & 0b1 == 0b1),
             reg_mtime, reg_mtime + 4 => return Exception.StoreAccessFault,
             reg_mtimecmp => clint.mtimecmp = (clint.mtimecmp & mask_hi) | v,
             reg_mtimecmp + 4 => clint.mtimecmp = (clint.mtimecmp & mask_lo) | @as(u64, v) << 32,
@@ -79,7 +79,7 @@ pub fn task(clint: *CLINT) void {
         // and checking against mtimecmp to set the mtip bit
         const tick = clint_timer.lap();
         clint.mtime += tick;
-        clint.interrupt_target.set_interrupt_pending(.Timer, clint.mtime > clint.mtimecmp);
+        clint.interrupt_target.set_interrupt_pending(.MachineTimer, clint.mtime > clint.mtimecmp);
 
         if (clint.mtimecmp < clint.mtime) {
             // if the timer has overrun, sleep for a short while before continuing to update mtime
