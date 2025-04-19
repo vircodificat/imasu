@@ -407,12 +407,12 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                 .mulh => mulh(x_rs1, x_rs2),
                 .mulhsu => mulhsu(x_rs1, x_rs2),
                 .mulhu => mulhu(x_rs1, x_rs2),
-                .div => div(x_rs1, x_rs2),
-                .divw => sext_to_xlen(divw(word(x_rs1), word(x_rs2))),
-                .divu => divu(x_rs1, x_rs2),
-                .divuw => sext_to_xlen(divuw(word(x_rs1), word(x_rs2))),
-                .rem => rem(x_rs1, x_rs2),
-                .remw => sext_to_xlen(remw(word(x_rs1), word(x_rs2))),
+                .div => div64(x_rs1, x_rs2),
+                .divw => sext_to_xlen(div32(word(x_rs1), word(x_rs2))),
+                .divu => divu64(x_rs1, x_rs2),
+                .divuw => sext_to_xlen(divu32(word(x_rs1), word(x_rs2))),
+                .rem => rem64(x_rs1, x_rs2),
+                .remw => sext_to_xlen(rem32(word(x_rs1), word(x_rs2))),
                 .remu => if (x_rs2 == 0) x_rs1 else x_rs1 % x_rs2,
                 .remuw => sext_to_xlen(
                     if (word(x_rs2) == 0) word(x_rs1) else word(x_rs1) % word(x_rs2),
@@ -692,7 +692,7 @@ fn mulhsu(x_rs1: u64, x_rs2: u64) u64 {
     return @truncate(v >> 64);
 }
 
-fn div(x_rs1: u64, x_rs2: u64) u64 {
+fn div64(x_rs1: u64, x_rs2: u64) u64 {
     const s_rs1 = signed(x_rs1);
     const s_rs2 = signed(x_rs2);
     // division by 0
@@ -709,7 +709,7 @@ fn div(x_rs1: u64, x_rs2: u64) u64 {
     return unsigned(@divTrunc(s_rs1, s_rs2));
 }
 
-fn divw(x_rs1: u32, x_rs2: u32) u32 {
+fn div32(x_rs1: u32, x_rs2: u32) u32 {
     const s_rs1 = signed(x_rs1);
     const s_rs2 = signed(x_rs2);
     // division by 0
@@ -726,7 +726,7 @@ fn divw(x_rs1: u32, x_rs2: u32) u32 {
     return unsigned(@divTrunc(s_rs1, s_rs2));
 }
 
-fn divu(x_rs1: u64, x_rs2: u64) u64 {
+fn divu64(x_rs1: u64, x_rs2: u64) u64 {
     // division by 0
     if (x_rs2 == 0) {
         @branchHint(.unlikely);
@@ -736,7 +736,7 @@ fn divu(x_rs1: u64, x_rs2: u64) u64 {
     return @divTrunc(x_rs1, x_rs2);
 }
 
-fn divuw(x_rs1: u32, x_rs2: u32) u32 {
+fn divu32(x_rs1: u32, x_rs2: u32) u32 {
     // division by 0
     if (x_rs2 == 0) {
         @branchHint(.unlikely);
@@ -746,7 +746,7 @@ fn divuw(x_rs1: u32, x_rs2: u32) u32 {
     return @divTrunc(x_rs1, x_rs2);
 }
 
-fn rem(x_rs1: u64, x_rs2: u64) u64 {
+fn rem64(x_rs1: u64, x_rs2: u64) u64 {
     const s_rs1 = signed(x_rs1);
     const s_rs2 = signed(x_rs2);
     // division by 0
@@ -760,14 +760,10 @@ fn rem(x_rs1: u64, x_rs2: u64) u64 {
         return 0;
     }
     // perform remainder
-    return if (s_rs2 < 0) unsigned(
-        @rem(s_rs1, -s_rs2),
-    ) else unsigned(
-        @rem(s_rs1, s_rs2),
-    );
+    return unsigned(if (s_rs2 > 0) @rem(s_rs1, s_rs2) else @rem(s_rs1, -s_rs2));
 }
 
-fn remw(w_rs1: u32, w_rs2: u32) u32 {
+fn rem32(w_rs1: u32, w_rs2: u32) u32 {
     const s_rs1 = signed(w_rs1);
     const s_rs2 = signed(w_rs2);
     // division by 0
@@ -781,9 +777,5 @@ fn remw(w_rs1: u32, w_rs2: u32) u32 {
         return 0;
     }
     // perform remainder
-    return if (s_rs2 < 0) unsigned(
-        @rem(s_rs1, -s_rs2),
-    ) else unsigned(
-        @rem(s_rs1, s_rs2),
-    );
+    return unsigned(if (s_rs2 > 0) @rem(s_rs1, s_rs2) else @rem(s_rs1, -s_rs2));
 }
