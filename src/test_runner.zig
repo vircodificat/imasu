@@ -2,7 +2,6 @@ const std = @import("std");
 
 const Memory = @import("memory.zig");
 const Hart = @import("hart.zig");
-const debug = @import("debug.zig");
 
 // entrypoint for testing against riscv-tests,
 // run with a path to a riscv-tests test binary
