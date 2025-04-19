@@ -200,7 +200,7 @@ pub fn main() !void {
     hart.csrs.mmu = &mmu;
     hart.csrs.time_csr_timer = &clint;
     clint.interrupt_target = &hart;
-    plic.ctx0 = &hart;
+    plic.ctx = &hart;
     uart.interrupt_target = &plic;
 
     // list of all mmio devices
@@ -330,7 +330,7 @@ fn generate_devicetree(mem_size: usize, a: std.mem.Allocator) ![]const u8 {
     try plic.add_u32_prop("riscv,ndev", 1, a);
     try plic.add_u32_array_prop(
         "interrupts-extended",
-        &.{ cpu0_intc_phandle, 0xb },
+        &.{ cpu0_intc_phandle, 0xb, cpu0_intc_phandle, 0x9 },
         a,
     );
     try plic.add_u32_prop("phandle", plic_phandle, a);
