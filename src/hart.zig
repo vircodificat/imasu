@@ -289,8 +289,8 @@ fn trap_on_exception(hart: *Hart, err: Exception, xtval: xlen) void {
 }
 
 // perform 'mret'
-fn mret(hart: *Hart) !void {
-    if (hart.priv != .M) return error.IllegalInstruction;
+fn mret(hart: *Hart) void {
+    assert(hart.priv == .M);
     // unset mprv only if mret will go out of M-mode
     if (hart.csrs.status.mpp != .M) hart.csrs.status.mprv = false;
     // pop privilege from mpp, mpp becomes lowest privilege level
@@ -305,8 +305,8 @@ fn mret(hart: *Hart) !void {
 }
 
 // perform 'sret'
-fn sret(hart: *Hart) !void {
-    if (hart.priv == .U) return error.IllegalInstruction;
+fn sret(hart: *Hart) void {
+    assert(hart.priv != .U);
     // pop privilege from spp, spp becomes lowest privilege level
     hart.priv = if (hart.csrs.status.spp) .S else .U;
     hart.csrs.status.spp = false;
@@ -608,12 +608,14 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     hart.pc +%= 4;
                     return;
                 },
-                .sret => {
-                    try hart.sret();
+                .sret => { // can only be called from M-mode or S-mode
+                    if (hart.priv == .U) return Exception.IllegalInstruction;
+                    hart.sret();
                     return;
                 },
-                .mret => {
-                    try hart.mret();
+                .mret => { // can only be called from M-mode
+                    if (hart.priv != .M) return Exception.IllegalInstruction;
+                    hart.mret();
                     return;
                 },
                 .wfi => {
