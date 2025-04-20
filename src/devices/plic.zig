@@ -1,10 +1,10 @@
 // Platform-Level Interrupt Controller
 
-const Exception = @import("../exception.zig").Exception;
+const riscv = @import("../riscv.zig");
+const Exception = riscv.Exception;
 const Hart = @import("../hart.zig");
 const std = @import("std");
 const Mutex = std.Thread.Mutex;
-const Condition = std.Thread.Condition;
 const assert = std.debug.assert;
 
 const PLIC = @This();
@@ -18,7 +18,7 @@ pending: [n_interrupts]bool,
 // which interrupts are enabled on context 0 (hart 0 M-mode)
 // and context 1 (hart 0 S-mode)
 ctx0_enable: [n_interrupts]bool,
-ctx1_enable: [n_interrupts]bool, // TODO
+ctx1_enable: [n_interrupts]bool,
 // priority threshold for context 0 (hart 0 M-mode)
 // and context 1 (hart 0 S-mode)
 // an interrupt is masked if <= this threshold
@@ -50,7 +50,7 @@ const reg_ctx1_claim = 0x20_1004;
 
 pub const mmio_len = 0x400_0000;
 
-pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) !T {
+pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) Exception!T {
     if (comptime T != u32) return Exception.LoadAccessFault;
     plic.mutex.lock();
     defer plic.mutex.unlock();
@@ -118,7 +118,7 @@ pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) !T {
     }
 }
 
-pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) !void {
+pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) Exception!void {
     if (comptime T != u32) return Exception.StoreAccessFault;
     plic.mutex.lock();
     defer plic.mutex.unlock();

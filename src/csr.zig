@@ -1,10 +1,11 @@
 // Control and Status Registers
 
-const Exception = @import("exception.zig").Exception;
-const Privilege = @import("priv.zig").Privilege;
-const MMU = @import("mmu.zig");
+const riscv = @import("riscv.zig");
+const Exception = riscv.Exception;
+const Privilege = riscv.Privilege;
 const CLINT = @import("devices/clint.zig");
-const xlen = @import("hart.zig").xlen;
+const MMU = @import("mmu.zig");
+const xlen = riscv.xlen;
 
 const CSRs = @This();
 

@@ -2,7 +2,8 @@
 // https://www.kernel.org/doc/Documentation/devicetree/bindings/timer/sifive%2Cclint.yaml
 // https://sifive.cdn.prismic.io/sifive%2Fc89f6e5a-cf9e-44c3-a3db-04420702dcc1_sifive+e31+manual+v19.08.pdf
 
-const Exception = @import("../exception.zig").Exception;
+const riscv = @import("../riscv.zig");
+const Exception = riscv.Exception;
 const Hart = @import("../hart.zig");
 const std = @import("std");
 const Timer = std.time.Timer;
@@ -28,7 +29,7 @@ pub const mmio_len = 0xc000;
 const mask_lo: u64 = 0xffffffff;
 const mask_hi: u64 = ~mask_lo;
 
-pub fn mmio_reg_read(clint: *CLINT, comptime T: type, reg_addr: u64) !T {
+pub fn mmio_reg_read(clint: *CLINT, comptime T: type, reg_addr: u64) Exception!T {
     switch (T) {
         u64 => switch (reg_addr) { // 8-byte access to mtime and mtimecmp only
             reg_mtime => return clint.mtime,
@@ -47,7 +48,7 @@ pub fn mmio_reg_read(clint: *CLINT, comptime T: type, reg_addr: u64) !T {
     }
 }
 
-pub fn mmio_reg_write(clint: *CLINT, comptime T: type, reg_addr: u64, v: T) !void {
+pub fn mmio_reg_write(clint: *CLINT, comptime T: type, reg_addr: u64, v: T) Exception!void {
     clint.cond.signal(); // wake the sleeping CLINT thread
     clint.mutex.lock(); // acquire mutex which we then release
     defer clint.mutex.unlock();

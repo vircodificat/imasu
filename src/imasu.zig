@@ -1,13 +1,13 @@
 const DT = @import("devicetree.zig");
+const Hart = @import("hart.zig");
+const Memory = @import("memory.zig");
+const MMU = @import("mmu.zig");
 const Device = @import("device.zig");
 const CLINT = @import("devices/clint.zig");
 const PLIC = @import("devices/plic.zig");
-const UART = @import("devices/uart.zig");
 const ROM = @import("devices/rom.zig");
 const Syscon = @import("devices/syscon.zig");
-const Memory = @import("memory.zig");
-const MMU = @import("mmu.zig");
-const Hart = @import("hart.zig");
+const UART = @import("devices/uart.zig");
 const std = @import("std");
 const eql = std.mem.eql;
 

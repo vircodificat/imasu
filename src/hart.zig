@@ -1,18 +1,25 @@
 // RISC-V Hart
 
-const Instruction = @import("instruction.zig").Instruction;
-const Exception = @import("exception.zig").Exception;
-const Privilege = @import("priv.zig").Privilege;
-const Memory = @import("memory.zig");
-const MMU = @import("mmu.zig");
+const riscv = @import("riscv.zig");
+const Exception = riscv.Exception;
+const Interrupt = riscv.Interrupt;
+const Privilege = riscv.Privilege;
 const CSRs = @import("csr.zig");
 const decode = @import("decode.zig");
+const Instruction = @import("instruction.zig").Instruction;
+const Memory = @import("memory.zig");
+const MMU = @import("mmu.zig");
 const std = @import("std");
+const xlen = riscv.xlen;
+const word = riscv.word;
+const signed = riscv.signed;
+const unsigned = riscv.unsigned;
+const zext_to_xlen = riscv.zext_to_xlen;
+const sext_to_xlen = riscv.sext_to_xlen;
+const exception_cause_value = riscv.exception_cause_value;
 const assert = std.debug.assert;
 
 const Hart = @This();
-
-pub const xlen = u64; // integer register width
 
 // hart state:
 x: [32]xlen, // general purpose registers
@@ -43,39 +50,6 @@ pub fn create() Hart {
         .cond = std.Thread.Condition{},
     };
 }
-
-// lower word of register
-inline fn word(v: xlen) u32 {
-    return @truncate(v);
-}
-
-// cast to unsigned
-inline fn unsigned(value: anytype) std.meta.Int(.unsigned, @typeInfo(@TypeOf(value)).int.bits) {
-    return @bitCast(value);
-}
-// cast to signed
-inline fn signed(value: anytype) std.meta.Int(.signed, @typeInfo(@TypeOf(value)).int.bits) {
-    return @bitCast(value);
-}
-// zero-extend to xlen
-inline fn zext_to_xlen(value: anytype) xlen {
-    const v = unsigned(value);
-    return @as(xlen, v);
-}
-// sign-extend to xlen
-inline fn sext_to_xlen(value: anytype) xlen {
-    const signed_xlen = std.meta.Int(.signed, @typeInfo(xlen).int.bits);
-    return @bitCast(@as(signed_xlen, signed(value)));
-}
-
-// interrupt types and xcause csr values
-pub const Interrupt = enum(xlen) {
-    MachineSoftware = 3,
-    SupervisorTimer = 5,
-    MachineTimer = 7,
-    SupervisorExternal = 9,
-    MachineExternal = 11,
-};
 
 pub fn task(hart: *Hart) void {
     hart.mutex.lock();
@@ -154,27 +128,6 @@ fn faulty_virtual_addr(hart: *Hart, instruction: Instruction) xlen {
         },
         .S => |inst| hart.x[inst.rs1] +% sext_to_xlen(inst.imm),
         else => unreachable,
-    };
-}
-
-// on an exception, the trap cause register is set to a value
-// depending on the type of exception
-fn exception_to_xcause_csr_value(err: Exception) xlen {
-    return switch (err) {
-        Exception.InstMisaligned => 0,
-        Exception.InstAccessFault => 1,
-        Exception.IllegalInstruction => 2,
-        Exception.Breakpoint => 3,
-        Exception.LoadMisaligned => 4,
-        Exception.LoadAccessFault => 5,
-        Exception.StoreMisaligned => 6,
-        Exception.StoreAccessFault => 7,
-        Exception.ECallUser => 8,
-        Exception.ECallSupervisor => 9,
-        Exception.ECallMachine => 11,
-        Exception.InstPageFault => 12,
-        Exception.LoadPageFault => 13,
-        Exception.StorePageFault => 15,
     };
 }
 
@@ -297,7 +250,7 @@ fn trap_on_interrupt_s_mode(hart: *Hart, interrupt: Interrupt) void {
 fn trap_on_exception(hart: *Hart, err: Exception, xtval: xlen) void {
     // exceptions can only be delegated to S-mode if they are set to in medeleg
     // and the exception did not occur in M-mode itself
-    const deleg = hart.priv != .M and hart.csrs.medeleg[exception_to_xcause_csr_value(err)];
+    const deleg = hart.priv != .M and hart.csrs.medeleg[exception_cause_value(err)];
 
     if (deleg) { // delegate to S-mode
         // push sie to spie, sie becomes false
@@ -309,7 +262,7 @@ fn trap_on_exception(hart: *Hart, err: Exception, xtval: xlen) void {
         hart.priv = .S;
         // store exception cause and value
         hart.csrs.stval = xtval;
-        hart.csrs.scause = exception_to_xcause_csr_value(err);
+        hart.csrs.scause = exception_cause_value(err);
         // store pc into sepc, set pc to trap vector base
         // as this is the trap procedure for exceptions not interrupts,
         // we always go to the base address
@@ -325,7 +278,7 @@ fn trap_on_exception(hart: *Hart, err: Exception, xtval: xlen) void {
         hart.priv = .M;
         // store exception cause and value
         hart.csrs.mtval = xtval;
-        hart.csrs.mcause = exception_to_xcause_csr_value(err);
+        hart.csrs.mcause = exception_cause_value(err);
         // store pc into mepc, set pc to trap vector base
         // as this is the trap procedure for exceptions not interrupts,
         // we always go to the base address
@@ -367,6 +320,9 @@ fn sret(hart: *Hart) !void {
     return;
 }
 
+// effective privilege level of loads and stores
+// usually equal to privilege level of the hart,
+// unless in M-mode and mprv is set, the equal to mpp
 inline fn effective_priv(hart: *const Hart) Privilege {
     if (hart.priv == .M and hart.csrs.status.mprv) {
         @branchHint(.cold);

@@ -1,7 +1,8 @@
 // NS8250 UART
 // http://byterunner.com/16550.html
 
-const Exception = @import("../exception.zig").Exception;
+const riscv = @import("../riscv.zig");
+const Exception = riscv.Exception;
 const Hart = @import("../hart.zig");
 const PLIC = @import("plic.zig");
 const std = @import("std");
@@ -47,7 +48,7 @@ const reg_scr = 0x7;
 
 pub const mmio_len = 0x8;
 
-pub fn mmio_reg_read(uart: *UART, comptime T: type, reg_addr: u64) !T {
+pub fn mmio_reg_read(uart: *UART, comptime T: type, reg_addr: u64) Exception!T {
     uart.cond.signal();
     uart.mutex.lock();
     defer uart.mutex.unlock();
@@ -93,7 +94,7 @@ pub fn mmio_reg_read(uart: *UART, comptime T: type, reg_addr: u64) !T {
     }
 }
 
-pub fn mmio_reg_write(uart: *UART, comptime T: type, reg_addr: u64, v: T) !void {
+pub fn mmio_reg_write(uart: *UART, comptime T: type, reg_addr: u64, v: T) Exception!void {
     uart.cond.signal();
     uart.mutex.lock();
     defer uart.mutex.unlock();

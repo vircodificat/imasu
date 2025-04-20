@@ -2,7 +2,6 @@
 
 const Instruction = @import("instruction.zig").Instruction;
 const Opcode = @import("instruction.zig").Opcode;
-
 const std = @import("std");
 
 // Decode immediate value from I-type instruction

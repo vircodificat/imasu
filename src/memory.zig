@@ -1,5 +1,7 @@
 // Interfaces to physical memory
 
+const riscv = @import("riscv.zig");
+const Exception = riscv.Exception;
 const Device = @import("device.zig");
 const std = @import("std");
 
@@ -25,7 +27,7 @@ inline fn access_bounded(addr: u64, sz: u64, base: u64, len: u64) bool {
 
 // load power-of-two bytes from physical address
 // will delegate to mmio devices
-pub fn load(memory: Memory, comptime T: type, addr: u64) !T {
+pub fn load(memory: Memory, comptime T: type, addr: u64) Exception!T {
     const sz = @divExact(@typeInfo(T).int.bits, 8);
     std.debug.assert(addr % sz == 0);
     // ram
@@ -44,12 +46,12 @@ pub fn load(memory: Memory, comptime T: type, addr: u64) !T {
         }
     }
     // fault
-    return error.LoadAccessFault;
+    return Exception.LoadAccessFault;
 }
 
 // store power-of-two bytes at physical address
 // will delegate to mmio devices
-pub fn store(memory: Memory, comptime T: type, addr: u64, v: T) !void {
+pub fn store(memory: Memory, comptime T: type, addr: u64, v: T) Exception!void {
     const sz = @divExact(@typeInfo(T).int.bits, 8);
     std.debug.assert(addr % sz == 0);
     // ram
@@ -69,13 +71,13 @@ pub fn store(memory: Memory, comptime T: type, addr: u64, v: T) !void {
         }
     }
     // fault
-    return error.StoreAccessFault;
+    return Exception.StoreAccessFault;
 }
 
 // fetch instruction bytes from physical address
 // instruction fetch is 4 bytes long
 // instruction fetch is not supported from mmio devices
-pub fn fetch(memory: Memory, addr: u64) !u32 {
+pub fn fetch(memory: Memory, addr: u64) Exception!u32 {
     std.debug.assert(addr % 4 == 0);
     // ram
     if (access_bounded(addr, 4, mem_base, memory.mem.len)) {
@@ -86,5 +88,5 @@ pub fn fetch(memory: Memory, addr: u64) !u32 {
         return v;
     }
     // fault
-    return error.InstAccessFault;
+    return Exception.InstAccessFault;
 }

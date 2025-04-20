@@ -1,9 +1,13 @@
 // Sv39 Memory-management unit
 
+const riscv = @import("riscv.zig");
+const Exception = riscv.Exception;
+const Privilege = riscv.Privilege;
 const Memory = @import("memory.zig");
-const Privilege = @import("priv.zig").Privilege;
-const xlen = @import("hart.zig").xlen;
 const std = @import("std");
+const xlen = riscv.xlen;
+const signed = riscv.signed;
+const sext_to_xlen = riscv.sext_to_xlen;
 
 const MMU = @This();
 
@@ -116,7 +120,7 @@ pub fn load(
     comptime T: type,
     vaddr: xlen,
     priv: Privilege,
-) !T {
+) Exception!T {
     const sz = @divExact(@typeInfo(T).int.bits, 8);
     if (comptime !std.math.isPowerOfTwo(sz)) {
         @compileError("Memory access must be a power of two number of bytes");
@@ -128,11 +132,11 @@ pub fn load(
     // check alignment
     if (vaddr % sz != 0) {
         @branchHint(.unlikely);
-        return error.LoadMisaligned;
+        return Exception.LoadMisaligned;
     }
 
     const paddr = mmu.translate(vaddr, priv, .R) // translate
-        orelse return error.LoadPageFault;
+        orelse return Exception.LoadPageFault;
     return try mmu.mem.load(T, paddr); // perform load
 }
 
@@ -143,7 +147,7 @@ pub fn store(
     vaddr: xlen,
     v: T,
     priv: Privilege,
-) !void {
+) Exception!void {
     const sz = @divExact(@typeInfo(T).int.bits, 8);
     if (comptime !std.math.isPowerOfTwo(sz)) {
         @compileError("Memory access must be a power of two number of bytes");
@@ -155,39 +159,28 @@ pub fn store(
     // check alignment
     if (vaddr % sz != 0) {
         @branchHint(.unlikely);
-        return error.StoreMisaligned;
+        return Exception.StoreMisaligned;
     }
 
     const paddr = mmu.translate(vaddr, priv, .W) // translate
-        orelse return error.StorePageFault;
+        orelse return Exception.StorePageFault;
     return try mmu.mem.store(T, paddr, v); // perform store
 }
 
 // fetch instruction at virtual address
 // instruction fetch is 4 bytes long
-pub fn fetch(mmu: MMU, vaddr: xlen, priv: Privilege) !u32 {
+pub fn fetch(mmu: MMU, vaddr: xlen, priv: Privilege) Exception!u32 {
     // check alignment
     if (vaddr % 4 != 0) {
         @branchHint(.cold);
-        return error.InstMisaligned;
+        return Exception.InstMisaligned;
     }
 
     const paddr = mmu.translate(vaddr, priv, .X) // translate
-        orelse return error.InstPageFault;
+        orelse return Exception.InstPageFault;
     return try mmu.mem.fetch(paddr); // perform fetch
 }
 
 inline fn get_bit(v: u64, bit: u6) bool {
     return ((v >> bit) & 0b1) != 0;
-}
-
-// cast to signed
-inline fn signed(value: anytype) std.meta.Int(.signed, @typeInfo(@TypeOf(value)).int.bits) {
-    return @bitCast(value);
-}
-
-// sign-extend to xlen
-inline fn sext_to_xlen(value: anytype) xlen {
-    const signed_xlen = std.meta.Int(.signed, @typeInfo(xlen).int.bits);
-    return @bitCast(@as(signed_xlen, signed(value)));
 }

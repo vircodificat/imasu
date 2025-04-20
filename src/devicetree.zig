@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Buffer = std.ArrayList(u8);
 const assert = std.debug.assert;
 
 const DT = @This();
@@ -105,8 +106,6 @@ pub inline fn add_string_array_prop(
 ) !void {
     try node.properties.put(a, name, .{ .strings = v });
 }
-
-const Buffer = std.ArrayList(u8);
 
 // dtb tokens
 const TOKEN_BEGIN_NODE: u32 = 0x1;
@@ -303,7 +302,8 @@ pub fn emit_dtb(root_node: *const DT, a: Allocator) ![]u8 {
     // emit header
     try emit_u32(0xd00dfeed, &dtb_buffer); // magic
     // total size
-    try emit_u32(header_sz + empty_rsv_sz + structure_sz + strings_sz, &dtb_buffer);
+    const total_sz = header_sz + empty_rsv_sz + structure_sz + strings_sz;
+    try emit_u32(total_sz, &dtb_buffer);
     // offset of structure block
     try emit_u32(header_sz + empty_rsv_sz, &dtb_buffer);
     // offset of string block
