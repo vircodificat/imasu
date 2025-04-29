@@ -5,6 +5,7 @@ const Exception = riscv.Exception;
 const Privilege = riscv.Privilege;
 const Memory = @import("memory.zig");
 const std = @import("std");
+const assert = std.debug.assert;
 const xlen = riscv.xlen;
 const signed = riscv.signed;
 const sext_to_xlen = riscv.sext_to_xlen;
@@ -21,7 +22,7 @@ sum: bool, // whether S-mode has access to U-mode memory
 mxr: bool, // executable implies readable
 
 pub fn create(mem: *Memory) MMU {
-    std.debug.assert(mem.mem.len % 4096 == 0);
+    assert(mem.mem.len % 4096 == 0);
     return MMU{
         .mem = mem,
         .mode = .Bare,
@@ -33,9 +34,47 @@ pub fn create(mem: *Memory) MMU {
 
 const Access = enum { R, W, X };
 
+// check whether a type of access is allowed to a page,
+// based on the privilege level, state of the mmu (sum and mxr),
+// type of access, and flags in the lowest byte of the pte
+inline fn access_ok(
+    mmu: *const MMU,
+    pte_bits: u8,
+    priv: Privilege,
+    access: Access,
+) bool {
+    assert(get_bit(pte_bits, 0)); // assert valid bit
+    const r = get_bit(pte_bits, 1); // read
+    const w = get_bit(pte_bits, 2); // write
+    const x = get_bit(pte_bits, 3); // execute
+    const u = get_bit(pte_bits, 4); // U-mode page
+    const a = get_bit(pte_bits, 6); // accessed
+    const d = get_bit(pte_bits, 7); // dirty
+
+    return switch (priv) {
+        .M => unreachable,
+        // S-mode can only access U-mode pages if SUM is set
+        .S => !u or (u and mmu.sum),
+        // U-mode can only access U-mode pages
+        .U => u,
+    } and switch (access) {
+        // if MXR is set, executable pages are also readable
+        .R => r or (x and mmu.mxr),
+        .W => w,
+        .X => x,
+    } and a and (access != .W or d);
+    // a must be set for any access type,
+    // d must be set only for writes
+}
+
 // translate virtual address to physical address,
 // performing a page-table walk if memory translation is active
-fn translate(mmu: MMU, vaddr: xlen, priv: Privilege, access: Access) ?u64 {
+fn translate(
+    mmu: *const MMU,
+    vaddr: xlen,
+    priv: Privilege,
+    access: Access,
+) ?u64 {
     // no translation in M-mode or in Bare MMU mode
     if (priv == .M or mmu.mode == .Bare) return vaddr;
 
@@ -64,29 +103,12 @@ fn translate(mmu: MMU, vaddr: xlen, priv: Privilege, access: Access) ?u64 {
         const r = get_bit(pte, 1);
         const w = get_bit(pte, 2);
         const x = get_bit(pte, 3);
-        if (w and !r) return null; // W should imply R
+        if (w and !r) return null; // w should imply r
 
         if (r or x) { // leaf PTE
-            const u = get_bit(pte, 4); // whether the page is accessible by U-mode
-            const a = get_bit(pte, 6); // page has been accessed
-            const d = get_bit(pte, 7); // page is dirty
 
-            const access_ok = switch (priv) {
-                .M => unreachable,
-                // S-mode can only access U-mode pages if SUM is set
-                .S => !u or (u and mmu.sum),
-                // U-mode can only access U-mode pages
-                .U => u,
-            } and switch (access) {
-                // if MXR is set, executable pages are also readable
-                .R => r or (x and mmu.mxr),
-                .W => w,
-                .X => x,
-            } and a and (access != .W or d);
-            // a must be set for any access,
-            // d must be set for write access
-
-            if (!access_ok) return null;
+            // check access
+            if (!access_ok(mmu, @truncate(pte), priv, access)) return null;
 
             // check if misaligned superpage
             const pte_ppn = (pte >> 10) & 0xfff_ffff_ffff;
@@ -104,7 +126,7 @@ fn translate(mmu: MMU, vaddr: xlen, priv: Privilege, access: Access) ?u64 {
             return paddr;
         }
 
-        std.debug.assert(!(r or w or x));
+        assert(!(r or w or x));
         // not a leaf PTE, continue to another level
         const pte_ppn = (pte >> 10) & 0xfff_ffff_ffff;
         page_table_paddr = pte_ppn *% page_size;
