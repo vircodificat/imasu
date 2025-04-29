@@ -21,6 +21,7 @@ sum: bool, // whether S-mode has access to U-mode memory
 mxr: bool, // executable implies readable
 
 pub fn create(mem: *Memory) MMU {
+    std.debug.assert(mem.mem.len % 4096 == 0);
     return MMU{
         .mem = mem,
         .mode = .Bare,
@@ -67,6 +68,8 @@ fn translate(mmu: MMU, vaddr: xlen, priv: Privilege, access: Access) ?u64 {
 
         if (r or x) { // leaf PTE
             const u = get_bit(pte, 4); // whether the page is accessible by U-mode
+            const a = get_bit(pte, 6); // page has been accessed
+            const d = get_bit(pte, 7); // page is dirty
 
             const access_ok = switch (priv) {
                 .M => unreachable,
@@ -79,7 +82,9 @@ fn translate(mmu: MMU, vaddr: xlen, priv: Privilege, access: Access) ?u64 {
                 .R => r or (x and mmu.mxr),
                 .W => w,
                 .X => x,
-            };
+            } and a and (access != .W or d);
+            // a must be set for any access,
+            // d must be set for write access
 
             if (!access_ok) return null;
 
@@ -87,11 +92,6 @@ fn translate(mmu: MMU, vaddr: xlen, priv: Privilege, access: Access) ?u64 {
             const pte_ppn = (pte >> 10) & 0xfff_ffff_ffff;
             if (i > 0 and pte_ppn & 0x1ff != 0) return null;
             if (i > 1 and (pte_ppn >> 9) & 0x1ff != 0) return null;
-
-            // check accessed and dirty bits
-            const a = get_bit(pte, 6);
-            const d = get_bit(pte, 7);
-            if (!a or (access == .W and !d)) return null;
 
             // success
             const paddr_ppn0 = if (i > 0) vpn[0] else (pte >> 10) & 0x1ff;
