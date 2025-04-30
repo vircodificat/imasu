@@ -39,17 +39,17 @@ const Access = enum { R, W, X };
 // type of access, and flags in the lowest byte of the pte
 inline fn access_ok(
     mmu: *const MMU,
-    pte_bits: u8,
+    perms: u8,
     priv: Privilege,
     access: Access,
 ) bool {
-    assert(get_bit(pte_bits, 0)); // assert valid bit
-    const r = get_bit(pte_bits, 1); // read
-    const w = get_bit(pte_bits, 2); // write
-    const x = get_bit(pte_bits, 3); // execute
-    const u = get_bit(pte_bits, 4); // U-mode page
-    const a = get_bit(pte_bits, 6); // accessed
-    const d = get_bit(pte_bits, 7); // dirty
+    assert(get_bit(perms, 0)); // assert valid bit
+    const r = get_bit(perms, 1); // read
+    const w = get_bit(perms, 2); // write
+    const x = get_bit(perms, 3); // execute
+    const u = get_bit(perms, 4); // U-mode page
+    const a = get_bit(perms, 6); // accessed
+    const d = get_bit(perms, 7); // dirty
 
     return switch (priv) {
         .M => unreachable,
@@ -74,12 +74,18 @@ fn translate(
     vaddr: xlen,
     priv: Privilege,
     access: Access,
-) ?u64 {
-    // no translation in M-mode or in Bare MMU mode
-    if (priv == .M or mmu.mode == .Bare) return vaddr;
+) Exception!u64 {
+    assert(priv != .M and mmu.mode != .Bare);
+
+    // fault type
+    const fault = switch (access) {
+        .R => Exception.LoadPageFault,
+        .W => Exception.StorePageFault,
+        .X => Exception.InstPageFault,
+    };
 
     // in Sv39 mode, bits 63-39 must be the same as 38
-    if (vaddr != sext_to_xlen(@as(u39, @truncate(vaddr)))) return null;
+    if (vaddr != sext_to_xlen(@as(u39, @truncate(vaddr)))) return fault;
 
     const page_size = 4096;
     const pte_size = 8;
@@ -96,24 +102,34 @@ fn translate(
     for (1..levels + 1) |l| {
         i = levels - l; // i = levels-1 ... 0
         const pte_paddr = page_table_paddr +% (vpn[i] *% pte_size);
-        const pte = mmu.mem.load(u64, pte_paddr) catch return null;
+        const pte = mmu.mem.load(u64, pte_paddr) catch return fault;
+        const perms: u8 = @truncate(pte);
 
-        if (!get_bit(pte, 0)) return null; // not a valid PTE
+        if (!get_bit(perms, 0)) return fault; // not a valid PTE
 
-        const r = get_bit(pte, 1);
-        const w = get_bit(pte, 2);
-        const x = get_bit(pte, 3);
-        if (w and !r) return null; // w should imply r
+        const r = get_bit(perms, 1);
+        const w = get_bit(perms, 2);
+        const x = get_bit(perms, 3);
+        if (w and !r) return fault; // w should imply r
 
         if (r or x) { // leaf PTE
 
             // check access
-            if (!access_ok(mmu, @truncate(pte), priv, access)) return null;
+            if (!access_ok(mmu, perms, priv, access)) {
+                @branchHint(.unlikely);
+                return fault;
+            }
 
             // check if misaligned superpage
             const pte_ppn = (pte >> 10) & 0xfff_ffff_ffff;
-            if (i > 0 and pte_ppn & 0x1ff != 0) return null;
-            if (i > 1 and (pte_ppn >> 9) & 0x1ff != 0) return null;
+            if (i > 0 and pte_ppn & 0x1ff != 0) {
+                @branchHint(.unlikely);
+                return fault;
+            }
+            if (i > 1 and (pte_ppn >> 9) & 0x1ff != 0) {
+                @branchHint(.unlikely);
+                return fault;
+            }
 
             // success
             const paddr_ppn0 = if (i > 0) vpn[0] else (pte >> 10) & 0x1ff;
@@ -133,7 +149,7 @@ fn translate(
         continue;
     }
     // out of levels
-    return null;
+    return fault;
 }
 
 // load power-of-two bytes at virtual address
@@ -157,9 +173,11 @@ pub fn load(
         return Exception.LoadMisaligned;
     }
 
-    const paddr = mmu.translate(vaddr, priv, .R) // translate
-        orelse return Exception.LoadPageFault;
-    return try mmu.mem.load(T, paddr); // perform load
+    const no_translation = priv == .M or mmu.mode == .Bare;
+    const paddr = if (no_translation) vaddr //
+        else try mmu.translate(vaddr, priv, .R);
+
+    return try mmu.mem.load(T, paddr);
 }
 
 // store power-of-two bytes at virtual address
@@ -184,9 +202,11 @@ pub fn store(
         return Exception.StoreMisaligned;
     }
 
-    const paddr = mmu.translate(vaddr, priv, .W) // translate
-        orelse return Exception.StorePageFault;
-    return try mmu.mem.store(T, paddr, v); // perform store
+    const no_translation = priv == .M or mmu.mode == .Bare;
+    const paddr = if (no_translation) vaddr //
+        else try mmu.translate(vaddr, priv, .W);
+
+    return try mmu.mem.store(T, paddr, v);
 }
 
 // fetch instruction at virtual address
@@ -198,9 +218,11 @@ pub fn fetch(mmu: MMU, vaddr: xlen, priv: Privilege) Exception!u32 {
         return Exception.InstMisaligned;
     }
 
-    const paddr = mmu.translate(vaddr, priv, .X) // translate
-        orelse return Exception.InstPageFault;
-    return try mmu.mem.fetch(paddr); // perform fetch
+    const no_translation = priv == .M or mmu.mode == .Bare;
+    const paddr = if (no_translation) vaddr //
+        else try mmu.translate(vaddr, priv, .X);
+
+    return try mmu.mem.fetch(paddr);
 }
 
 inline fn get_bit(v: u64, bit: u6) bool {
