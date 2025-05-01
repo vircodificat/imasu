@@ -14,7 +14,7 @@ Features of the emulator include:
 
 ## Compiling and usage
 
-**imasu** is written in the Zig language using the latest development branch, but *should* work with Zig `0.14`.
+**imasu** is written in the Zig language using the latest development branch (currently 0.15.0-dev).
 
 run `zig build [-Doptimize=...]` to compile the emulator.
 

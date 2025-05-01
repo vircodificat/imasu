@@ -128,7 +128,7 @@ pub fn main() !void {
 
     // allocate memory for RAM
     const ram: []align(std.heap.page_size_min) u8 =
-        try a.alignedAlloc(u8, std.heap.page_size_min, mem_sz);
+        try a.alignedAlloc(u8, std.mem.Alignment.fromByteUnits(std.heap.page_size_min), mem_sz);
 
     // zero initialise
     @memset(ram, 0);
