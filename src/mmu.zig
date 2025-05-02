@@ -41,7 +41,7 @@ inline fn access_ok(
     mmu: *const MMU,
     perms: u8,
     priv: Privilege,
-    access: Access,
+    comptime access: Access,
 ) bool {
     assert(get_bit(perms, 0)); // assert valid bit
     const r = get_bit(perms, 1); // read
@@ -68,13 +68,13 @@ inline fn access_ok(
 }
 
 // translate virtual address to physical address,
-// performing a page-table walk if memory translation is active
+// performing a page-table walk
 fn translate(
     mmu: *const MMU,
     vaddr: xlen,
     priv: Privilege,
-    access: Access,
-) Exception!u64 {
+    comptime access: Access,
+) Exception!xlen {
     assert(priv != .M and mmu.mode != .Bare);
 
     // fault type
@@ -173,9 +173,8 @@ pub fn load(
         return Exception.LoadMisaligned;
     }
 
-    const no_translation = priv == .M or mmu.mode == .Bare;
-    const paddr = if (no_translation) vaddr //
-        else try mmu.translate(vaddr, priv, .R);
+    const no_translate = priv == .M or mmu.mode == .Bare;
+    const paddr = if (no_translate) vaddr else try mmu.translate(vaddr, priv, .R);
 
     return try mmu.mem.load(T, paddr);
 }
@@ -202,9 +201,8 @@ pub fn store(
         return Exception.StoreMisaligned;
     }
 
-    const no_translation = priv == .M or mmu.mode == .Bare;
-    const paddr = if (no_translation) vaddr //
-        else try mmu.translate(vaddr, priv, .W);
+    const no_translate = priv == .M or mmu.mode == .Bare;
+    const paddr = if (no_translate) vaddr else try mmu.translate(vaddr, priv, .W);
 
     return try mmu.mem.store(T, paddr, v);
 }
@@ -218,9 +216,8 @@ pub fn fetch(mmu: MMU, vaddr: xlen, priv: Privilege) Exception!u32 {
         return Exception.InstMisaligned;
     }
 
-    const no_translation = priv == .M or mmu.mode == .Bare;
-    const paddr = if (no_translation) vaddr //
-        else try mmu.translate(vaddr, priv, .X);
+    const no_translate = priv == .M or mmu.mode == .Bare;
+    const paddr = if (no_translate) vaddr else try mmu.translate(vaddr, priv, .X);
 
     return try mmu.mem.fetch(paddr);
 }
