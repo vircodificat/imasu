@@ -359,18 +359,23 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
         csr_mcause => csrs.mcause,
         csr_mtval => csrs.mtval,
         csr_mip => csrs.mip_read(),
-        csr_cycle => switch (priv) {
-            .M => csrs.cycle,
-            .S => if (csrs.counteren.mcy) csrs.cycle else Illegal,
-            .U => if (csrs.counteren.mcy and csrs.counteren.scy)
-                csrs.cycle else Illegal,
+        csr_cycle => {
+            const access = switch (priv) {
+                .M => true,
+                .S => csrs.counteren.mcy,
+                .U => csrs.counteren.mcy and csrs.counteren.scy,
+            };
+            if (!access) return Illegal;
+            return csrs.cycle;
         },
-        csr_time => switch (priv) {
-            .M => csrs.time_csr_timer.mtime,
-            .S => if (csrs.counteren.mtm)
-                csrs.time_csr_timer.mtime else Illegal,
-            .U => if (csrs.counteren.mtm and csrs.counteren.stm)
-                csrs.time_csr_timer.mtime else Illegal,
+        csr_time => {
+            const access = switch (priv) {
+                .M => true,
+                .S => csrs.counteren.mtm,
+                .U => csrs.counteren.mtm and csrs.counteren.stm,
+            };
+            if (!access) return Illegal;
+            return CLINT.system_mtime();
         },
         csr_mvendorid => 0,
         csr_marchid => 0,

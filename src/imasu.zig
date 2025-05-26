@@ -263,7 +263,7 @@ fn generate_devicetree(mem_size: usize, a: std.mem.Allocator) ![]const u8 {
     var cpus = DT.create_node("cpus");
     try cpus.add_u32_prop("#address-cells", 1, a);
     try cpus.add_u32_prop("#size-cells", 0, a);
-    try cpus.add_u32_prop("timebase-frequency", std.time.ns_per_s, a);
+    try cpus.add_u32_prop("timebase-frequency", CLINT.timebase_freq, a);
 
     const cpu0_name = try name_unit_addr("cpu", 0, a);
     var cpu0 = DT.create_node(cpu0_name);
