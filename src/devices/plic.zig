@@ -169,21 +169,31 @@ pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) ?void 
 fn update(plic: *PLIC) void {
     var mexternal_interrupt_pending: bool = false;
     var sexternal_interrupt_pending: bool = false;
-    defer plic.ctx.set_interrupt_pending(.MachineExternal, mexternal_interrupt_pending);
-    defer plic.ctx.set_interrupt_pending(.SupervisorExternal, sexternal_interrupt_pending);
+    defer plic.ctx.set_interrupt_pending(
+        .MachineExternal,
+        mexternal_interrupt_pending,
+    );
+    defer plic.ctx.set_interrupt_pending(
+        .SupervisorExternal,
+        sexternal_interrupt_pending,
+    );
 
     var int: u32 = 1;
     while (int < n_interrupts) : (int += 1) {
-        if (plic.pending[int] and plic.ctx0_enable[int] and 1 > plic.ctx0_priority_threshold) {
-            mexternal_interrupt_pending = true;
-            break;
+        if (plic.pending[int] and plic.ctx0_enable[int]) {
+            if (1 > plic.ctx0_priority_threshold) {
+                mexternal_interrupt_pending = true;
+                break;
+            }
         }
     }
     int = 1;
     while (int < n_interrupts) : (int += 1) {
-        if (plic.pending[int] and plic.ctx1_enable[int] and 1 > plic.ctx1_priority_threshold) {
-            sexternal_interrupt_pending = true;
-            break;
+        if (plic.pending[int] and plic.ctx1_enable[int]) {
+            if (1 > plic.ctx1_priority_threshold) {
+                sexternal_interrupt_pending = true;
+                break;
+            }
         }
     }
 }
