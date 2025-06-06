@@ -2,7 +2,6 @@
 // http://byterunner.com/16550.html
 
 const riscv = @import("../riscv.zig");
-const Exception = riscv.Exception;
 const Hart = @import("../hart.zig");
 const PLIC = @import("plic.zig");
 const std = @import("std");
@@ -48,13 +47,11 @@ const reg_scr = 0x7;
 
 pub const mmio_len = 0x8;
 
-pub fn mmio_reg_read(uart: *UART, comptime T: type, reg_addr: u64) Exception!T {
-    uart.cond.signal();
+pub fn mmio_reg_read(uart: *UART, comptime T: type, reg_addr: u64) ?T {
     uart.mutex.lock();
     defer uart.mutex.unlock();
-    errdefer uart.mutex.unlock();
-
-    if (comptime T != u8) return Exception.LoadAccessFault;
+    defer uart.cond.signal();
+    if (comptime T != u8) return null;
     switch (reg_addr) {
         reg_rbr_thr => {
             if (uart.lcr.dl_enable) return 0;
@@ -94,17 +91,15 @@ pub fn mmio_reg_read(uart: *UART, comptime T: type, reg_addr: u64) Exception!T {
     }
 }
 
-pub fn mmio_reg_write(uart: *UART, comptime T: type, reg_addr: u64, v: T) Exception!void {
-    uart.cond.signal();
+pub fn mmio_reg_write(uart: *UART, comptime T: type, reg_addr: u64, v: T) ?void {
     uart.mutex.lock();
     defer uart.mutex.unlock();
-    errdefer uart.mutex.unlock();
-
-    if (comptime T != u8) return Exception.StoreAccessFault;
+    if (comptime T != u8) return null;
     switch (reg_addr) {
         reg_rbr_thr => {
             if (uart.lcr.dl_enable) return; // ignore writes to dll
             uart.thr = v;
+            uart.cond.signal();
         },
         reg_ier => { // write ier
             if (uart.lcr.dl_enable) return; // ignore writes to dlm

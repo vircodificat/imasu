@@ -3,7 +3,6 @@
 // https://sifive.cdn.prismic.io/sifive%2Fc89f6e5a-cf9e-44c3-a3db-04420702dcc1_sifive+e31+manual+v19.08.pdf
 
 const riscv = @import("../riscv.zig");
-const Exception = riscv.Exception;
 const Hart = @import("../hart.zig");
 const std = @import("std");
 const Timer = std.time.Timer;
@@ -36,24 +35,27 @@ pub fn mmio_reg_read(
     clint: *CLINT,
     comptime T: type,
     reg_addr: u64,
-) Exception!T {
+) ?T {
     switch (T) {
         u64 => switch (reg_addr) {
             // 8-byte access allowed to mtime and mtimecmp only
             reg_mtime => return system_mtime(),
             reg_mtimecmp => return clint.mtimecmp,
-            else => return Exception.LoadAccessFault,
+            else => return null,
         },
         u32 => switch (reg_addr) {
             // 4-byte access to all registers
-            reg_mswi => return @as(T, @intFromBool(clint.interrupt_target.csrs.ip.msip)),
+            reg_mswi => {
+                const msip = clint.interrupt_target.csrs.ip.msip;
+                return @as(T, @intFromBool(msip));
+            },
             reg_mtime => return @truncate(system_mtime()),
             reg_mtime + 4 => return @truncate(system_mtime() >> 32),
             reg_mtimecmp => return @truncate(clint.mtimecmp),
             reg_mtimecmp + 4 => return @truncate(clint.mtimecmp >> 32),
-            else => return Exception.LoadAccessFault,
+            else => return null,
         },
-        else => return Exception.LoadAccessFault,
+        else => return null,
     }
 }
 
@@ -62,26 +64,37 @@ pub fn mmio_reg_write(
     comptime T: type,
     reg_addr: u64,
     v: T,
-) Exception!void {
-    clint.cond.signal();
+) ?void {
     clint.mutex.lock();
     defer clint.mutex.unlock();
-    errdefer clint.mutex.unlock();
-    const mask_lo: u64 = 0xffffffff;
-    const mask_hi: u64 = ~mask_lo;
     switch (T) {
         u64 => switch (reg_addr) {
-            reg_mtimecmp => clint.mtimecmp = v,
-            else => return Exception.StoreAccessFault,
+            reg_mtimecmp => {
+                clint.mtimecmp = v;
+                clint.cond.signal();
+            },
+            else => return null,
         },
         u32 => switch (reg_addr) {
-            reg_mswi => clint.interrupt_target.set_interrupt_pending(.MachineSoftware, v & 0b1 == 0b1),
-            reg_mtime, reg_mtime + 4 => return Exception.StoreAccessFault,
-            reg_mtimecmp => clint.mtimecmp = (clint.mtimecmp & mask_hi) | v,
-            reg_mtimecmp + 4 => clint.mtimecmp = (clint.mtimecmp & mask_lo) | @as(u64, v) << 32,
-            else => return Exception.StoreAccessFault,
+            reg_mswi => {
+                const swi = v & 0b1 == 0b1;
+                clint.interrupt_target.set_interrupt_pending(.MachineSoftware, swi);
+                clint.cond.signal();
+            },
+            reg_mtime, reg_mtime + 4 => return null,
+            reg_mtimecmp => {
+                const mask_hi: u64 = ~(@as(u64, 0xffffffff));
+                clint.mtimecmp = (clint.mtimecmp & mask_hi) | v;
+                clint.cond.signal();
+            },
+            reg_mtimecmp + 4 => {
+                const mask_lo: u64 = 0xffffffff;
+                clint.mtimecmp = (clint.mtimecmp & mask_lo) | @as(u64, v) << 32;
+                clint.cond.signal();
+            },
+            else => return null,
         },
-        else => return Exception.StoreAccessFault,
+        else => return null,
     }
 }
 

@@ -1,7 +1,6 @@
 // Platform-Level Interrupt Controller
 
 const riscv = @import("../riscv.zig");
-const Exception = riscv.Exception;
 const Hart = @import("../hart.zig");
 const std = @import("std");
 const Mutex = std.Thread.Mutex;
@@ -50,8 +49,8 @@ const reg_ctx1_claim = 0x20_1004;
 
 pub const mmio_len = 0x400_0000;
 
-pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) Exception!T {
-    if (comptime T != u32) return Exception.LoadAccessFault;
+pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) ?T {
+    if (comptime T != u32) return null;
     plic.mutex.lock();
     defer plic.mutex.unlock();
     errdefer plic.mutex.unlock();
@@ -114,12 +113,12 @@ pub fn mmio_reg_read(plic: *PLIC, comptime T: type, reg_addr: u64) Exception!T {
             }
             return 0;
         },
-        else => return Exception.LoadAccessFault,
+        else => return null,
     }
 }
 
-pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) Exception!void {
-    if (comptime T != u32) return Exception.StoreAccessFault;
+pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) ?void {
+    if (comptime T != u32) return null;
     plic.mutex.lock();
     defer plic.mutex.unlock();
     errdefer plic.mutex.unlock();
@@ -129,7 +128,7 @@ pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) Except
             assert(interrupt_num < n_interrupts);
             return; // our priorities are fixed
         },
-        reg_pending => return Exception.StoreAccessFault,
+        reg_pending => return null,
         reg_ctx0_enable => {
             defer plic.update();
             var interrupt: u5 = 1;
@@ -160,7 +159,7 @@ pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) Except
             // do nothing successfully?
             return;
         },
-        else => return Exception.StoreAccessFault,
+        else => return null,
     }
 }
 
