@@ -52,18 +52,21 @@ pub fn create() Hart {
 }
 
 pub fn task(hart: *Hart) void {
-    hart.mutex.lock();
     // main loop for the hart
     const wfi_timeout = 100 * std.time.ns_per_ms;
     while (true) {
-        hart.try_take_interrupt();
+        _ = hart.try_take_interrupt();
         // run at most some amount of cycles before checking for interrupts
         var cycle: usize = 0;
         while (cycle < 1024) : (cycle += 1) inst: {
             hart.step();
             if (hart.wfi) { // on wfi, halt until we receive an interrupt or timeout
                 @branchHint(.unlikely);
+                // interrupt available, break immediately
+                if (hart.try_take_interrupt()) break :inst;
+                hart.mutex.lock();
                 hart.cond.timedWait(&hart.mutex, wfi_timeout) catch {};
+                hart.mutex.unlock();
                 break :inst;
             }
         }
@@ -133,6 +136,9 @@ fn faulty_virtual_addr(hart: *Hart, instruction: Instruction) xlen {
 
 // set the hart's interrupt pending bit for some source
 pub fn set_interrupt_pending(hart: *Hart, interrupt: Interrupt, v: bool) void {
+    hart.mutex.lock();
+    defer hart.mutex.unlock();
+    defer hart.cond.signal();
     switch (interrupt) {
         .MachineSoftware => hart.csrs.ip.msip = v,
         .SupervisorTimer => hart.csrs.ip.stip = v,
@@ -140,10 +146,9 @@ pub fn set_interrupt_pending(hart: *Hart, interrupt: Interrupt, v: bool) void {
         .SupervisorExternal => hart.csrs.ip.seip = v,
         .MachineExternal => hart.csrs.ip.meip = v,
     }
-    if (v == true) hart.cond.signal();
 }
 
-pub fn try_take_interrupt(hart: *Hart) void {
+pub fn try_take_interrupt(hart: *Hart) bool {
     // we do not support delegating mei, msi, or mti,
     // so these interrupts can cause a trap to M-mode if not in M-mode or
     // in M-mode with the global mie bit enabled
@@ -153,33 +158,33 @@ pub fn try_take_interrupt(hart: *Hart) void {
         if (hart.csrs.ip.meip and hart.csrs.ie.meie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.MachineExternal);
-            return;
+            return true;
         }
         // check for and take M-mode software interrupts
         if (hart.csrs.ip.msip and hart.csrs.ie.msie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.MachineSoftware);
-            return;
+            return true;
         }
         // check for and take M-mode timer interrupts
         if (hart.csrs.ip.mtip and hart.csrs.ie.mtie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.MachineTimer);
-            return;
+            return true;
         }
         // check for and take S-mode external interrupts in M-mode if
         // the corresponding bit is not set in mideleg
         if (!hart.csrs.mideleg.sei and hart.csrs.ip.seip and hart.csrs.ie.seie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.SupervisorExternal);
-            return;
+            return true;
         }
         // check for and take S-mode timer interrupts in M-mode if
         // the corresponding bit is not set in mideleg
         if (!hart.csrs.mideleg.sti and hart.csrs.ip.stip and hart.csrs.ie.stie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.SupervisorTimer);
-            return;
+            return true;
         }
     }
     // sei, sti can be delegated to S-mode,
@@ -190,14 +195,16 @@ pub fn try_take_interrupt(hart: *Hart) void {
         if (hart.csrs.mideleg.sei and hart.csrs.ip.seip and hart.csrs.ie.seie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_s_mode(.SupervisorExternal);
-            return;
+            return true;
         }
         if (hart.csrs.mideleg.sti and hart.csrs.ip.stip and hart.csrs.ie.stie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_s_mode(.SupervisorTimer);
-            return;
+            return true;
         }
     }
+    // no interrupt taken
+    return false;
 }
 
 // take a trap to M-mode caused by an interrupt
