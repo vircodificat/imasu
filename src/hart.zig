@@ -53,20 +53,22 @@ pub fn create() Hart {
 
 pub fn task(hart: *Hart) void {
     // main loop for the hart
-    const wfi_timeout = 100 * std.time.ns_per_ms;
     while (true) {
-        _ = hart.try_take_interrupt();
+        hart.try_take_interrupt();
         // run at most some amount of cycles before checking for interrupts
         var cycle: usize = 0;
         while (cycle < 1024) : (cycle += 1) inst: {
             hart.step();
-            if (hart.wfi) { // on wfi, halt until we receive an interrupt or timeout
-                @branchHint(.unlikely);
-                // interrupt available, break immediately
-                if (hart.try_take_interrupt()) break :inst;
+            if (hart.wfi) {
+                @branchHint(.cold);
+                defer hart.wfi = false;
+                // wfi only halts if no enabled interrupts are pending,
+                // regardless of status.mie, status.sie, and mideleg
+                if (hart.enabled_interrupts_pending()) break :inst;
                 hart.mutex.lock();
+                defer hart.mutex.unlock();
+                const wfi_timeout = std.time.ns_per_s;
                 hart.cond.timedWait(&hart.mutex, wfi_timeout) catch {};
-                hart.mutex.unlock();
                 break :inst;
             }
         }
@@ -148,43 +150,53 @@ pub fn set_interrupt_pending(hart: *Hart, interrupt: Interrupt, v: bool) void {
     }
 }
 
-pub fn try_take_interrupt(hart: *Hart) bool {
+// inhibit sleep on wfi if any interrupts are enabled and pending
+// regardless of the state of status.mie, status.sie, or mideleg
+fn enabled_interrupts_pending(hart: *Hart) bool {
+    return (hart.csrs.ie.meie and hart.csrs.ip.meip) or
+        (hart.csrs.ie.msie and hart.csrs.ip.msip) or
+        (hart.csrs.ie.mtie and hart.csrs.ip.mtip) or
+        (hart.csrs.ie.seie and hart.csrs.ip.seip) or
+        (hart.csrs.ie.stie and hart.csrs.ip.stip);
+}
+
+fn try_take_interrupt(hart: *Hart) void {
     // we do not support delegating mei, msi, or mti,
     // so these interrupts can cause a trap to M-mode if not in M-mode or
     // in M-mode with the global mie bit enabled
-    const trap_to_m = hart.priv != .M or (hart.priv == .M and hart.csrs.status.mie);
+    const trap_to_m = hart.priv != .M or hart.csrs.status.mie;
     if (trap_to_m) {
         // check for and take M-mode external interrupts
         if (hart.csrs.ip.meip and hart.csrs.ie.meie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.MachineExternal);
-            return true;
+            return;
         }
         // check for and take M-mode software interrupts
         if (hart.csrs.ip.msip and hart.csrs.ie.msie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.MachineSoftware);
-            return true;
+            return;
         }
         // check for and take M-mode timer interrupts
         if (hart.csrs.ip.mtip and hart.csrs.ie.mtie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.MachineTimer);
-            return true;
+            return;
         }
         // check for and take S-mode external interrupts in M-mode if
         // the corresponding bit is not set in mideleg
         if (!hart.csrs.mideleg.sei and hart.csrs.ip.seip and hart.csrs.ie.seie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.SupervisorExternal);
-            return true;
+            return;
         }
         // check for and take S-mode timer interrupts in M-mode if
         // the corresponding bit is not set in mideleg
         if (!hart.csrs.mideleg.sti and hart.csrs.ip.stip and hart.csrs.ie.stie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_m_mode(.SupervisorTimer);
-            return true;
+            return;
         }
     }
     // sei, sti can be delegated to S-mode,
@@ -195,16 +207,16 @@ pub fn try_take_interrupt(hart: *Hart) bool {
         if (hart.csrs.mideleg.sei and hart.csrs.ip.seip and hart.csrs.ie.seie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_s_mode(.SupervisorExternal);
-            return true;
+            return;
         }
         if (hart.csrs.mideleg.sti and hart.csrs.ip.stip and hart.csrs.ie.stie) {
             @branchHint(.unlikely);
             hart.trap_on_interrupt_s_mode(.SupervisorTimer);
-            return true;
+            return;
         }
     }
     // no interrupt taken
-    return false;
+    return;
 }
 
 // take a trap to M-mode caused by an interrupt
