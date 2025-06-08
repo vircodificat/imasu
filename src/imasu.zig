@@ -144,7 +144,6 @@ pub fn main() !void {
     );
 
     // standard input setup
-    try stdin_nonblocking();
     try terminal_make_raw(allow_ctrl_c);
 
     // create memory with ram
@@ -409,15 +408,6 @@ fn name_unit_addr(
     std.debug.assert(string.len == buf.len);
     return string;
 }
-
-// zig fmt: off
-fn stdin_nonblocking() !void {
-    const flags = try std.posix.fcntl(0, std.c.F.GETFL, 0);
-    _ = try std.posix.fcntl(0, std.c.F.SETFL,
-        flags | @as(u32, @bitCast(std.c.O{ .NONBLOCK = true })),
-    );
-}
-// zig fmt: on
 
 fn terminal_make_raw(allow_ctrl_c: bool) !void {
     var termios = try std.posix.tcgetattr(0);
