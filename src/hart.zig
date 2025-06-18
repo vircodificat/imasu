@@ -138,9 +138,6 @@ fn faulty_virtual_addr(hart: *Hart, instruction: Instruction) xlen {
 
 // set the hart's interrupt pending bit for some source
 pub fn set_interrupt_pending(hart: *Hart, interrupt: Interrupt, v: bool) void {
-    hart.mutex.lock();
-    defer hart.mutex.unlock();
-    defer hart.cond.signal();
     switch (interrupt) {
         .MachineSoftware => hart.csrs.ip.msip = v,
         .SupervisorTimer => hart.csrs.ip.stip = v,
@@ -148,6 +145,14 @@ pub fn set_interrupt_pending(hart: *Hart, interrupt: Interrupt, v: bool) void {
         .SupervisorExternal => hart.csrs.ip.seip = v,
         .MachineExternal => hart.csrs.ip.meip = v,
     }
+    const ie = switch (interrupt) {
+        .MachineSoftware => hart.csrs.ie.msie,
+        .SupervisorTimer => hart.csrs.ie.stie,
+        .MachineTimer => hart.csrs.ie.mtie,
+        .SupervisorExternal => hart.csrs.ie.seie,
+        .MachineExternal => hart.csrs.ie.meie,
+    };
+    if (v and ie) hart.cond.signal();
 }
 
 // inhibit sleep on wfi if any interrupts are enabled and pending
