@@ -25,7 +25,7 @@ ctx0_priority_threshold: u1,
 ctx1_priority_threshold: u1,
 
 // hart that this PLIC is connected to
-ctx: *Hart,
+hart: *Hart,
 
 // the PLIC is not ran in its own thread,
 // devices that signal interrupts and MMIO accesses will assume the role
@@ -169,11 +169,11 @@ pub fn mmio_reg_write(plic: *PLIC, comptime T: type, reg_addr: u64, v: T) ?void 
 fn update(plic: *PLIC) void {
     var mexternal_interrupt_pending: bool = false;
     var sexternal_interrupt_pending: bool = false;
-    defer plic.ctx.set_interrupt_pending(
+    defer plic.hart.set_interrupt_pending(
         .MachineExternal,
         mexternal_interrupt_pending,
     );
-    defer plic.ctx.set_interrupt_pending(
+    defer plic.hart.set_interrupt_pending(
         .SupervisorExternal,
         sexternal_interrupt_pending,
     );
@@ -214,7 +214,7 @@ pub fn create() PLIC {
         .ctx1_enable = .{false} ** n_interrupts,
         .ctx0_priority_threshold = 0,
         .ctx1_priority_threshold = 0,
-        .ctx = undefined,
+        .hart = undefined,
         .mutex = Mutex{},
     };
 }

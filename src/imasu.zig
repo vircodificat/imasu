@@ -197,9 +197,9 @@ pub fn main() !void {
     hart.mmu = &mmu;
     hart.csrs.mmu = &mmu;
     hart.csrs.time_csr_timer = &clint;
-    clint.interrupt_target = &hart;
-    plic.ctx = &hart;
-    uart.interrupt_target = &plic;
+    clint.hart = &hart;
+    plic.hart = &hart;
+    uart.ic = &plic;
 
     // list of all mmio devices
     var mmio_dev_list = [_]*Device{

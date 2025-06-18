@@ -34,7 +34,7 @@ mutex: Mutex,
 cond: Condition,
 
 // interrupt controller through which to route the interrupt
-interrupt_target: *PLIC,
+ic: *PLIC,
 // interrupt number on the interrupt controller
 const interrupt_num = 1;
 
@@ -124,16 +124,16 @@ pub fn mmio_reg_write(uart: *UART, comptime T: type, reg_addr: u64, v: T) ?void 
 fn update_interrupts(uart: *UART) void {
     if (uart.ier.tx_avail and uart.ipending.tx_avail) {
         uart.iir = .tx_avail;
-        uart.interrupt_target.set_interrupt_pending(interrupt_num, true);
+        uart.ic.set_interrupt_pending(interrupt_num, true);
         return;
     }
     if (uart.ier.rx_avail and uart.rbr != null) {
         uart.iir = .rx_avail;
-        uart.interrupt_target.set_interrupt_pending(interrupt_num, true);
+        uart.ic.set_interrupt_pending(interrupt_num, true);
         return;
     }
     uart.iir = null;
-    uart.interrupt_target.set_interrupt_pending(interrupt_num, false);
+    uart.ic.set_interrupt_pending(interrupt_num, false);
 }
 
 pub fn task(uart: *UART) void {
@@ -157,7 +157,7 @@ pub fn task(uart: *UART) void {
 
 pub fn create() UART {
     return UART{
-        .interrupt_target = undefined,
+        .ic = undefined,
         .rbr = null,
         .ier = .{
             .rx_avail = false,

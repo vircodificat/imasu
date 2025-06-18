@@ -13,7 +13,7 @@ const CLINT = @This();
 
 mtimecmp: u64, // timer compare value
 
-interrupt_target: *Hart, // hart that this CLINT interrupts
+hart: *Hart, // hart that this CLINT interrupts
 
 // thread variables
 mutex: Mutex,
@@ -25,10 +25,10 @@ const reg_mtimecmp = 0x4000; // 8 bytes, comparison value of the timer
 
 pub const mmio_len = 0xc000;
 
-pub const timebase_freq = std.time.ns_per_s;
+pub const timebase_freq = std.time.us_per_s;
 
 pub fn system_mtime() u64 {
-    return @truncate(@as(u128, @bitCast(std.time.nanoTimestamp())));
+    return @bitCast(std.time.microTimestamp());
 }
 
 pub fn mmio_reg_read(
@@ -46,7 +46,7 @@ pub fn mmio_reg_read(
         u32 => switch (reg_addr) {
             // 4-byte access to all registers
             reg_mswi => {
-                const msip = clint.interrupt_target.csrs.ip.msip;
+                const msip = clint.hart.csrs.ip.msip;
                 return @as(T, @intFromBool(msip));
             },
             reg_mtime => return @truncate(system_mtime()),
@@ -78,7 +78,7 @@ pub fn mmio_reg_write(
         u32 => switch (reg_addr) {
             reg_mswi => {
                 const swi = v & 0b1 == 0b1;
-                clint.interrupt_target.set_interrupt_pending(.MachineSoftware, swi);
+                clint.hart.set_interrupt_pending(.MachineSoftware, swi);
                 clint.cond.signal();
             },
             reg_mtime, reg_mtime + 4 => return null,
@@ -104,8 +104,9 @@ pub fn task(clint: *CLINT) void {
         clint.mutex.lock();
         defer clint.mutex.unlock();
 
+        // update interrupt bit
         const mtime: u64 = system_mtime();
-        clint.interrupt_target.set_interrupt_pending(
+        clint.hart.set_interrupt_pending(
             .MachineTimer,
             mtime > clint.mtimecmp,
         );
@@ -118,14 +119,15 @@ pub fn task(clint: *CLINT) void {
         // put the thread to sleep until we reach the next timer interrupt,
         // or one of the registers is written to, waking the thread back up
         // to recalcuate
-        const delta = clint.mtimecmp - mtime;
-        clint.cond.timedWait(&clint.mutex, delta) catch {};
+        const delta_us = clint.mtimecmp - mtime;
+        const delta_ns = delta_us * std.time.ns_per_us;
+        clint.cond.timedWait(&clint.mutex, delta_ns) catch {};
     }
 }
 
 pub fn create() CLINT {
     return CLINT{
-        .interrupt_target = undefined,
+        .hart = undefined,
         .mtimecmp = 0,
         .mutex = Mutex{},
         .cond = Condition{},
