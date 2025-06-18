@@ -627,19 +627,27 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     hart.pc +%= 4;
                     return;
                 },
-                .@"sfence.vma" => { // no-op, but cannot be called in U-mode
+                .@"sfence.vma" => {
+                    // no-op, but cannot be called in U-mode
                     if (hart.priv == .U) return Exception.IllegalInstruction;
+                    // if mstatus.tvm is set, cause an illegal instruction exception
+                    if (hart.csrs.status.tvm) return Exception.IllegalInstruction;
                     hart.pc +%= 4;
                     return;
                 },
-                .sret => { // can only be called from M-mode or S-mode
+                .sret => {
+                    // can only be called from M-mode or S-mode
                     if (hart.priv == .U) return Exception.IllegalInstruction;
+                    // if mstatus.tsr is set, cause an illegal instruction exception
+                    if (hart.csrs.status.tsr) return Exception.IllegalInstruction;
                     hart.sret();
+                    hart.try_take_interrupt();
                     return;
                 },
                 .mret => { // can only be called from M-mode
                     if (hart.priv != .M) return Exception.IllegalInstruction;
                     hart.mret();
+                    hart.try_take_interrupt();
                     return;
                 },
                 .wfi => {

@@ -2,6 +2,7 @@
 
 const riscv = @import("riscv.zig");
 const Exception = riscv.Exception;
+const Illegal = Exception.IllegalInstruction;
 const Privilege = riscv.Privilege;
 const CLINT = @import("devices/clint.zig");
 const MMU = @import("mmu.zig");
@@ -34,6 +35,8 @@ status: struct { // status register
     mpp: Privilege, // M-mode previous privilege
     mprv: bool, // Modify privilege
     // sum, mxr are stored in the MMU
+    tvm: bool, // Trap Virtual Memory
+    tsr: bool, // Trap sret
 },
 medeleg: [16]bool, // M-mode exception delegation register
 mideleg: struct { // M-mode interrupt delegation register
@@ -77,7 +80,9 @@ inline fn mstatus_read(csrs: CSRs) xlen {
         | @as(xlen, @intFromEnum(csrs.status.mpp)) << 11
         | set_bit(csrs.status.mprv, 17)
         | set_bit(csrs.mmu.sum, 18)
-        | set_bit(csrs.mmu.mxr, 19);
+        | set_bit(csrs.mmu.mxr, 19)
+        | set_bit(csrs.status.tvm, 20)
+        | set_bit(csrs.status.tsr, 22);
     // zig fmt: on
 }
 
@@ -102,6 +107,8 @@ inline fn mstatus_write(csrs: *CSRs, v: xlen) void {
     csrs.status.mprv = get_bit(v, 17);
     csrs.mmu.sum = get_bit(v, 18);
     csrs.mmu.mxr = get_bit(v, 19);
+    csrs.status.tvm = get_bit(v, 20);
+    csrs.status.tsr = get_bit(v, 22);
 }
 
 inline fn sstatus_write(csrs: *CSRs, v: xlen) void {
@@ -276,6 +283,8 @@ pub fn create() CSRs {
             .spp = false,
             .mpp = .U,
             .mprv = false,
+            .tvm = false,
+            .tsr = false,
         },
         .medeleg = .{false} ** 16,
         .mideleg = .{
@@ -323,8 +332,6 @@ const misa_value: xlen = @as(xlen, 0b10) << 62 // xlen=64
 // isa: zyxwvutsrqponmlkjihgfedcba
 // // zig fmt: on
 
-const Illegal = Exception.IllegalInstruction;
-
 // read from CSR 'csrno'
 pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
     const perm: u2 = @truncate(csrno >> 8);
@@ -342,7 +349,7 @@ pub fn read(csrs: CSRs, csrno: u12, priv: Privilege) Exception!xlen {
         csr_scause => csrs.scause,
         csr_stval => csrs.stval,
         csr_sip => csrs.sip_read(),
-        csr_satp => csrs.satp_read(),
+        csr_satp => if (csrs.status.tvm) Illegal else csrs.satp_read(),
         csr_mstatus => csrs.mstatus_read(),
         csr_misa => misa_value,
         csr_medeleg => csrs.medeleg_read(),
@@ -409,7 +416,8 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
         csr_scause => csrs.scause = v,
         csr_stval => csrs.stval = v,
         csr_sip =>  {}, // sip is read-only
-        csr_satp => csrs.satp_write(v),
+        csr_satp => if (csrs.status.tvm)
+            return Illegal else csrs.satp_write(v),
         csr_mstatus => csrs.mstatus_write(v),
         csr_misa => {}, // misa is read-only
         csr_medeleg => csrs.medeleg_write(v),
@@ -432,5 +440,4 @@ pub fn write(csrs: *CSRs, csrno: u12, priv: Privilege, v: xlen) Exception!void {
         csr_mip => csrs.mip_write(v),
         else => return Illegal,
     }
-    return;
 }
