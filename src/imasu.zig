@@ -8,6 +8,7 @@ const PLIC = @import("devices/plic.zig");
 const ROM = @import("devices/rom.zig");
 const Syscon = @import("devices/syscon.zig");
 const UART = @import("devices/uart.zig");
+const riscv = @import("riscv.zig");
 const std = @import("std");
 const eql = std.mem.eql;
 
@@ -29,8 +30,11 @@ const plic_mmio_base: u64 = 0x0c00_0000;
 const uart_mmio_base: u64 = 0x1000_0000;
 const clint_mmio_base: u64 = 0x1100_0000;
 const syscon_mmio_base: u64 = 0x1110_0000;
-const dtb_mmio_base: u64 = 0x7000_0000;
+const dtb_mmio_base: u64 = 0x4000_0000;
 const dtb_sz = 16 * 1024;
+
+const phys_mem_max_sz_mib: usize =
+    ((std.math.maxInt(riscv.xlen) - Memory.mem_base) + 1) / (1024 * 1024) - 1;
 
 fn die(comptime format: []const u8, args: anytype) noreturn {
     const stderr = std.io.getStdErr().writer();
@@ -79,8 +83,10 @@ pub fn main() !void {
                     die_with_error("could not parse memory size", .{}, err);
                 };
             } else die("flag '{s}' expects a memory size\n", .{arg});
-            if (mem_sz_mib < 8) die("too little memory for system, use at least 8 MiB", .{});
-            if (mem_sz_mib > std.math.maxInt(usize) / 1024 * 1024) die("memory size specified is too big", .{});
+            if (mem_sz_mib < 8)
+                die("too little memory for system, use at least 8 MiB", .{});
+            if (mem_sz_mib > phys_mem_max_sz_mib)
+                die("memory size specified is too big to be addressable", .{});
             mem_sz = mem_sz_mib * 1024 * 1024;
             idx += 1;
             continue;
@@ -116,7 +122,8 @@ pub fn main() !void {
         std.process.exit(0);
     }
 
-    if (image_path == null) die("no binary image provided, run with -h or --help for usage", .{});
+    if (image_path == null)
+        die("no binary image provided, run with -h or --help for usage", .{});
 
     const image_file = std.posix.open(image_path.?, .{ .ACCMODE = .RDONLY }, 0) catch |err| {
         die_with_error("could not open \"{s}\"", .{image_path.?}, err);
@@ -124,11 +131,16 @@ pub fn main() !void {
     defer std.posix.close(image_file);
 
     const image_len: usize = @intCast((try std.posix.fstat(image_file)).size);
-    if (image_len > mem_sz) die("image file \"{s}\" is too big to fit in main memory", .{image_path.?});
+    if (image_len > mem_sz)
+        die("image file \"{s}\" is too big to fit in main memory", .{image_path.?});
 
     // allocate memory for RAM
     const ram: []align(std.heap.page_size_min) u8 =
-        try a.alignedAlloc(u8, std.mem.Alignment.fromByteUnits(std.heap.page_size_min), mem_sz);
+        try a.alignedAlloc(
+            u8,
+            std.mem.Alignment.fromByteUnits(std.heap.page_size_min),
+            mem_sz,
+        );
 
     // zero initialise
     @memset(ram, 0);
@@ -397,7 +409,13 @@ fn name_unit_addr(
 ) ![]u8 {
     // unit_addr when writen as hex can take up at most 16 bytes
     var num_buf: [16]u8 = undefined;
-    const num = std.fmt.bufPrintIntToSlice(&num_buf, unit_addr, 16, .lower, .{});
+    const num = std.fmt.bufPrintIntToSlice(
+        &num_buf,
+        unit_addr,
+        16,
+        .lower,
+        .{},
+    );
     var buf = try a.alloc(u8, name.len + 1 + num.len);
     const string = std.fmt.bufPrint(
         buf[0..buf.len],
