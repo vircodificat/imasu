@@ -420,7 +420,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     defer hart.res = null;
                     errdefer hart.res = null;
                     if (hart.res) |res| {
-                        if ((x_rs1 == res.addr) or (res.double and x_rs1 == res.addr + 4)) {
+                        if ((x_rs1 == res.addr and !res.double)) {
                             try hart.mmu.store(u32, x_rs1, word(x_rs2), epriv);
                             break :scw 0; // success
                         }
@@ -431,7 +431,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                     defer hart.res = null;
                     errdefer hart.res = null;
                     if (hart.res) |res| {
-                        if (res.double and x_rs1 == res.addr) {
+                        if (x_rs1 == res.addr and res.double) {
                             try hart.mmu.store(u64, x_rs1, x_rs2, epriv);
                             break :scd 0; // success
                         }
