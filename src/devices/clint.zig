@@ -83,12 +83,10 @@ pub fn mmio_reg_write(
             },
             reg_mtime, reg_mtime + 4 => return null,
             reg_mtimecmp => {
-                const mask_hi: u64 = ~(@as(u64, 0xffffffff));
                 clint.mtimecmp = (clint.mtimecmp & mask_hi) | v;
                 clint.cond.signal();
             },
             reg_mtimecmp + 4 => {
-                const mask_lo: u64 = 0xffffffff;
                 clint.mtimecmp = (clint.mtimecmp & mask_lo) | @as(u64, v) << 32;
                 clint.cond.signal();
             },
@@ -120,7 +118,7 @@ pub fn task(clint: *CLINT) void {
         // or one of the registers is written to, waking the thread back up
         // to recalcuate
         const delta_us = clint.mtimecmp - mtime;
-        const delta_ns = delta_us * std.time.ns_per_us;
+        const delta_ns = delta_us *| std.time.ns_per_us;
         clint.cond.timedWait(&clint.mutex, delta_ns) catch {};
     }
 }
@@ -133,3 +131,6 @@ pub fn create() CLINT {
         .cond = Condition{},
     };
 }
+
+const mask_lo: u64 = 0xffffffff;
+const mask_hi: u64 = ~(@as(u64, 0xffffffff));
