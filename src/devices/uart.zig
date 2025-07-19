@@ -2,7 +2,6 @@
 // http://byterunner.com/16550.html
 
 const riscv = @import("../riscv.zig");
-const Hart = @import("../hart.zig");
 const PLIC = @import("plic.zig");
 const std = @import("std");
 const Mutex = std.Thread.Mutex;
