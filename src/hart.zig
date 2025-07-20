@@ -17,6 +17,7 @@ const unsigned = riscv.unsigned;
 const zext_to_xlen = riscv.zext_to_xlen;
 const sext_to_xlen = riscv.sext_to_xlen;
 const exception_cause_value = riscv.exception_cause_value;
+const is_interrupt_related = CSRs.is_interrupt_related;
 const assert = std.debug.assert;
 
 const Hart = @This();
@@ -536,6 +537,7 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
         },
         .CSR => |inst| {
             const x_rs1 = hart.x[inst.rs1];
+            defer if (is_interrupt_related(inst.csrno)) hart.try_take_interrupt();
             switch (inst.opcode) {
                 .csrrw => { // no read if rd=x0, always write
                     if (inst.rd != 0) hart.x[inst.rd] = try hart.csrs.read(inst.csrno, hart.priv);
@@ -544,12 +546,16 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                 .csrrs => { // always read, no write if rs1=x0
                     const v = try hart.csrs.read(inst.csrno, hart.priv);
                     if (inst.rd != 0) hart.x[inst.rd] = v;
-                    if (inst.rs1 != 0) try hart.csrs.write(inst.csrno, hart.priv, v | x_rs1);
+                    if (inst.rs1 != 0) {
+                        try hart.csrs.write(inst.csrno, hart.priv, v | x_rs1);
+                    }
                 },
                 .csrrc => { // always read, no write if rs1=x0
                     const v = try hart.csrs.read(inst.csrno, hart.priv);
                     if (inst.rd != 0) hart.x[inst.rd] = v;
-                    if (inst.rs1 != 0) try hart.csrs.write(inst.csrno, hart.priv, v & ~x_rs1);
+                    if (inst.rs1 != 0) {
+                        try hart.csrs.write(inst.csrno, hart.priv, v & ~x_rs1);
+                    }
                 },
                 .csrrwi => { // no read if rd=x0, always write
                     if (inst.rd != 0) hart.x[inst.rd] = try hart.csrs.read(inst.csrno, hart.priv);
@@ -558,12 +564,16 @@ fn execute(hart: *Hart, instruction: Instruction) Exception!void {
                 .csrrsi => { // always read, no write if rs1=x0
                     const v = try hart.csrs.read(inst.csrno, hart.priv);
                     if (inst.rd != 0) hart.x[inst.rd] = v;
-                    if (inst.rs1 != 0) try hart.csrs.write(inst.csrno, hart.priv, v | zext_to_xlen(inst.rs1));
+                    if (inst.rs1 != 0) {
+                        try hart.csrs.write(inst.csrno, hart.priv, v | zext_to_xlen(inst.rs1));
+                    }
                 },
                 .csrrci => { // always read, no write if rs1=x0
                     const v = try hart.csrs.read(inst.csrno, hart.priv);
                     if (inst.rd != 0) hart.x[inst.rd] = v;
-                    if (inst.rs1 != 0) try hart.csrs.write(inst.csrno, hart.priv, v & ~zext_to_xlen(inst.rs1));
+                    if (inst.rs1 != 0) {
+                        try hart.csrs.write(inst.csrno, hart.priv, v & ~zext_to_xlen(inst.rs1));
+                    }
                 },
             }
             hart.pc +%= 4;

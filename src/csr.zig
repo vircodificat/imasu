@@ -257,6 +257,24 @@ const csr_mhartid       = 0xf14;
 const csr_mconfigptr    = 0xf15;
 // zig fmt: on
 
+// for the purposes of interrupt checking on csr write
+// see sections "machine interrupt registers (mip and mie)"
+// and "supervisor interrupt registers (sip and sie)" in
+// the privileged spec
+pub fn is_interrupt_related(csrno: u12) bool {
+    return switch (csrno) {
+        csr_mip,
+        csr_mie,
+        csr_mstatus,
+        csr_mideleg,
+        csr_sip,
+        csr_sie,
+        csr_sstatus,
+        => true,
+        else => false,
+    };
+}
+
 pub fn create() CSRs {
     return CSRs{
         .sepc = 0,
