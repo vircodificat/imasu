@@ -1,6 +1,7 @@
 // MMIO-accessible device interface type
 
 const riscv = @import("riscv.zig");
+const Disk = @import("devices/virtio_disk.zig");
 const CLINT = @import("devices/clint.zig");
 const PLIC = @import("devices/plic.zig");
 const ROM = @import("devices/rom.zig");
@@ -11,6 +12,7 @@ const std = @import("std");
 const Device = @This();
 
 kind: union(enum) { // device type
+    disk: *Disk,
     clint: *CLINT,
     plic: *PLIC,
     rom: *ROM,
