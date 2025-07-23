@@ -10,7 +10,7 @@ const PLIC = @This();
 
 // number of interrupts supported by the PLIC
 // including interrupt source 0 which does not exist
-pub const n_interrupts = 2;
+pub const n_interrupts = 3;
 
 // which interrupts are pending
 pending: [n_interrupts]bool,
