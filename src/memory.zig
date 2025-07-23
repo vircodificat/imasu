@@ -24,6 +24,17 @@ inline fn access_bounded(addr: u64, sz: u64, base: u64, len: u64) bool {
     return addr >= base and addr <= base + len - sz;
 }
 
+// get bounded slice of memory for direct memory access,
+// used by devices that write to memory such as a disk
+pub fn dma_slice(memory: Memory, addr: u64, len: u64) ![]u8 {
+    if (access_bounded(addr, len, mem_base, memory.mem.len)) {
+        @branchHint(.likely);
+        const offset = addr - mem_base;
+        return memory.mem[offset .. offset + len][0..len];
+    }
+    return error.OutOfBounds;
+}
+
 // load power-of-two bytes from physical address
 // will delegate to mmio devices
 pub fn load(memory: Memory, comptime T: type, addr: u64) ?T {
