@@ -26,11 +26,14 @@ const help_text =
     \\
 ;
 
-const plic_mmio_base: u64 = 0x0c00_0000;
-const uart_mmio_base: u64 = 0x1000_0000;
-const clint_mmio_base: u64 = 0x1100_0000;
-const syscon_mmio_base: u64 = 0x1110_0000;
-const dtb_mmio_base: u64 = 0x4000_0000;
+// zig fmt: off
+const clint_mmio_base: u64 =  0x0200_0000;
+const plic_mmio_base: u64 =   0x0c00_0000;
+const uart_mmio_base: u64 =   0x1000_0000;
+const syscon_mmio_base: u64 = 0x1100_0000;
+const disk_mmio_base: u64 =   0x2000_0000;
+const dtb_mmio_base: u64 =    0x4000_0000;
+// zig fmt: on
 const dtb_sz = 16 * 1024;
 
 const phys_mem_max_sz_mib: usize =
