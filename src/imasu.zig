@@ -3,6 +3,7 @@ const Hart = @import("hart.zig");
 const Memory = @import("memory.zig");
 const MMU = @import("mmu.zig");
 const Device = @import("device.zig");
+const Disk = @import("devices/virtio_disk.zig");
 const CLINT = @import("devices/clint.zig");
 const PLIC = @import("devices/plic.zig");
 const ROM = @import("devices/rom.zig");
@@ -15,14 +16,15 @@ const eql = std.mem.eql;
 const help_text =
     \\imasu64 is a RISC-V 64-bit System Emulator
     \\
-    \\usage: imasu64 [ -i <image> ] [ -m, --memory <memory size> ] [ --dtb ] [ --ctrlc ] [ -h, --help ]
+    \\usage: imasu64 [ -i <image> ] [ -d <disk image> ] [ -m, --memory <size> ] [ --dtb ] [ --ctrlc ] [ -h, --help ]
     \\
-    \\-i <image>                  Provide a binary image for the emulator to run
-    \\-m, --memory <memory size>  Specify system main memory size in MiB, default is 256
-    \\--dtb                       Instead of running the emulator, prints the generated devicetree blob for the system,
-    \\                            pipe into devicetree compiler to see (dtc -I dtb)
-    \\--ctrlc                     Allow Ctrl+C to be sent through stdin, instead of terminating the emulator
-    \\-h, --help                  Print this help text
+    \\-i <image>           Provide a binary image to run
+    \\-d <disk image>      Provide a hard disk image
+    \\-m, --memory <size>  Specify system main memory size in MiB, default is 256
+    \\--dtb                Instead of running the emulator, prints the generated devicetree blob for the system,
+    \\                     pipe into devicetree compiler to see (dtc -I dtb)
+    \\--ctrlc              Allow Ctrl+C to be sent through stdin, instead of terminating the emulator
+    \\-h, --help           Print this help text
     \\
 ;
 
@@ -45,7 +47,7 @@ fn die(comptime format: []const u8, args: anytype) noreturn {
     std.process.exit(1);
 }
 
-fn die_with_error(comptime format: []const u8, args: anytype, err: anyerror) noreturn {
+fn die_error(comptime format: []const u8, args: anytype, err: anyerror) noreturn {
     const stderr = std.io.getStdErr().writer();
     stderr.print(format ++ ": {s}\n", args ++ .{@errorName(err)}) catch {};
     std.process.exit(1);
@@ -60,6 +62,7 @@ pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
     var image_path: ?[:0]const u8 = null;
+    var disk_path: ?[:0]const u8 = null;
     var mem_sz: usize = 256 * 1024 * 1024;
     var allow_ctrl_c: bool = false;
     var print_dtb: bool = false;
@@ -78,12 +81,21 @@ pub fn main() !void {
             continue;
         }
 
+        // -d <disk image>
+        if (eql(u8, arg, "-d")) {
+            if (maybe_next) |next_arg| {
+                disk_path = next_arg;
+            } else die("flag '-d' expects a file path", .{});
+            idx += 1;
+            continue;
+        }
+
         // -m, --memory <memory size>
         if (eql(u8, arg, "-m") or eql(u8, arg, "--memory")) {
             var mem_sz_mib: usize = undefined;
             if (maybe_next) |next_arg| {
                 mem_sz_mib = std.fmt.parseInt(usize, next_arg, 10) catch |err| {
-                    die_with_error("could not parse memory size", .{}, err);
+                    die_error("could not parse memory size", .{}, err);
                 };
             } else die("flag '{s}' expects a memory size\n", .{arg});
             if (mem_sz_mib < 8)
@@ -115,7 +127,7 @@ pub fn main() !void {
     }
 
     // generate devicetree data
-    const dtb_data = try generate_devicetree(mem_sz, a);
+    const dtb_data = try generate_devicetree(mem_sz, (disk_path != null), a);
     defer a.free(dtb_data);
     var dtb_buffer: [dtb_sz]u8 = @splat(0);
     @memcpy(dtb_buffer[0..dtb_data.len], dtb_data);
@@ -129,7 +141,7 @@ pub fn main() !void {
         die("no binary image provided, run with -h or --help for usage", .{});
 
     const image_file = std.posix.open(image_path.?, .{ .ACCMODE = .RDONLY }, 0) catch |err| {
-        die_with_error("could not open \"{s}\"", .{image_path.?}, err);
+        die_error("could not open \"{s}\"", .{image_path.?}, err);
     };
     defer std.posix.close(image_file);
 
@@ -154,6 +166,20 @@ pub fn main() !void {
         0,
     );
 
+    var disk_file: ?std.posix.fd_t = null;
+    var disk_sz: ?u64 = null;
+    if (disk_path) |path| {
+        disk_file = std.posix.open(path, .{ .ACCMODE = .RDWR }, 0) catch |err| {
+            die_error("could not open \"{s}\"", .{path}, err);
+        };
+        const stat = std.posix.fstat(disk_file.?) catch |err| {
+            die_error("could not stat \"{s}\"", .{path}, err);
+        };
+        disk_sz = @intCast(stat.size);
+    }
+
+    var mmio_devices = try std.ArrayList(*Device).initCapacity(a, 8);
+
     // standard input setup
     try terminal_make_raw(allow_ctrl_c);
 
@@ -172,6 +198,7 @@ pub fn main() !void {
         .mmio_base = clint_mmio_base,
         .mmio_len = CLINT.mmio_len,
     };
+    try mmio_devices.append(&clint_dev);
 
     // create PLIC device
     var plic = PLIC.create();
@@ -180,6 +207,7 @@ pub fn main() !void {
         .mmio_base = plic_mmio_base,
         .mmio_len = PLIC.mmio_len,
     };
+    try mmio_devices.append(&plic_dev);
 
     // create UART device
     var uart = UART.create();
@@ -188,6 +216,20 @@ pub fn main() !void {
         .mmio_base = uart_mmio_base,
         .mmio_len = UART.mmio_len,
     };
+    try mmio_devices.append(&uart_dev);
+
+    // optionally create disk device
+    var disk: Disk = undefined;
+    var disk_dev: Device = undefined;
+    if (disk_file) |fd| {
+        disk = Disk.create(fd, disk_sz.?);
+        disk_dev = Device{
+            .kind = .{ .disk = &disk },
+            .mmio_base = disk_mmio_base,
+            .mmio_len = Disk.mmio_len,
+        };
+        try mmio_devices.append(&disk_dev);
+    }
 
     // create Syscon
     var syscon = Syscon{};
@@ -196,6 +238,7 @@ pub fn main() !void {
         .mmio_base = syscon_mmio_base,
         .mmio_len = Syscon.mmio_len,
     };
+    try mmio_devices.append(&syscon_dev);
 
     // create DTB ROM device with the buffer
     var dtb_rom = ROM{ .mem = &dtb_buffer };
@@ -204,6 +247,7 @@ pub fn main() !void {
         .mmio_base = dtb_mmio_base,
         .mmio_len = dtb_sz,
     };
+    try mmio_devices.append(&dtb_dev);
 
     hart.mmu = &mmu;
     hart.csrs.mmu = &mmu;
@@ -211,17 +255,11 @@ pub fn main() !void {
     clint.hart = &hart;
     plic.hart = &hart;
     uart.ic = &plic;
+    disk.ic = &plic;
+    if (disk_file != null) disk.mem = &mem;
 
-    // list of all mmio devices
-    var mmio_dev_list = [_]*Device{
-        &clint_dev,
-        &plic_dev,
-        &uart_dev,
-        &dtb_dev,
-        &syscon_dev,
-    };
-    // attach them to main memory
-    mem.devices = mmio_dev_list[0..mmio_dev_list.len];
+    // attach devices to main memory
+    mem.devices = try mmio_devices.toOwnedSlice();
 
     // set a1 register to start of dtb rom
     hart.x[11] = dtb_dev.mmio_base;
@@ -234,14 +272,23 @@ pub fn main() !void {
     var uart_thread = try std.Thread.spawn(.{}, UART.task, .{&uart});
     uart_thread.detach();
 
+    if (disk_file != null) {
+        // spawn the thread that runs the VirtIO disk
+        var disk_thread = try std.Thread.spawn(.{}, Disk.task, .{&disk});
+        disk_thread.detach();
+    }
+
     // run the hart on the main thread
     hart.task();
 }
 
 // generate devicetree blob for the system
-// currently the only runtime parameter is memory size,
-// but if SMP is ever supported, then we must generate nodes for all harts
-fn generate_devicetree(mem_size: usize, a: std.mem.Allocator) ![]const u8 {
+// if SMP is ever supported, then we must generate nodes for all harts
+fn generate_devicetree(
+    mem_size: usize, // size of system memory
+    disk: bool, // whether we have a disk or not
+    a: std.mem.Allocator,
+) ![]const u8 {
     var root = DT.create_node("");
     errdefer root.deinit_tree(a);
     var next_phandle: u32 = 1;
@@ -255,7 +302,7 @@ fn generate_devicetree(mem_size: usize, a: std.mem.Allocator) ![]const u8 {
     try chosen.add_string_prop("stdout-path", "/soc/serial", a);
     try chosen.add_string_prop(
         "bootargs",
-        "earlycon=uart,mmio,0x10000000,9600n console=ttyS0",
+        "earlycon=uart,mmio,0x10000000,9600n console=ttyS0 root=/dev/vda rw",
         a,
     );
 
@@ -337,7 +384,7 @@ fn generate_devicetree(mem_size: usize, a: std.mem.Allocator) ![]const u8 {
         &.{ plic_mmio_base, PLIC.mmio_len },
         a,
     );
-    try plic.add_u32_prop("riscv,ndev", 1, a);
+    try plic.add_u32_prop("riscv,ndev", 2, a);
     try plic.add_u32_array_prop(
         "interrupts-extended",
         &.{ cpu0_intc_phandle, 0xb, cpu0_intc_phandle, 0x9 },
@@ -359,6 +406,20 @@ fn generate_devicetree(mem_size: usize, a: std.mem.Allocator) ![]const u8 {
         a,
     );
     try uart.add_u32_prop("clock-frequency", 9600 * 16, a);
+
+    const virtio_block_name = try name_unit_addr("virtio_block", disk_mmio_base, a);
+    var virtio_block = DT.create_node(virtio_block_name);
+    try virtio_block.add_string_prop("compatible", "virtio,mmio", a);
+    try virtio_block.add_u64_array_prop(
+        "reg",
+        &.{ disk_mmio_base, Disk.mmio_len },
+        a,
+    );
+    try virtio_block.add_u32_array_prop(
+        "interrupts-extended",
+        &.{ plic_phandle, 0x2 },
+        a,
+    );
 
     const syscon_name = try name_unit_addr("syscon", syscon_mmio_base, a);
     var syscon = DT.create_node(syscon_name);
@@ -394,6 +455,7 @@ fn generate_devicetree(mem_size: usize, a: std.mem.Allocator) ![]const u8 {
     try soc.add_child(clint, a);
     try soc.add_child(plic, a);
     try soc.add_child(uart, a);
+    if (disk) try soc.add_child(virtio_block, a);
     try soc.add_child(syscon, a);
     try root.add_child(soc, a);
 
