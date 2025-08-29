@@ -7,6 +7,7 @@ Features of the emulator include:
 - **Sv39** Memory Management Unit
 - standard platform devices, such as a **CLINT** Timer and **PLIC** Interrupt Controller
 - emulated NS8250 UART for terminal input and output
+- **VirtIO Disk** device
 - per-device threads, sleep on `wfi` for low idle host CPU usage
 - Syscon device for system poweroff
 - runtime **Device tree** blob generation
@@ -36,11 +37,12 @@ see [OpenSBI > Required Toolchain and Packages](https://github.com/riscv-softwar
 
 ### Running Linux
 
-**imasu** can run the Linux kernel with a baked-in root filesystem, bundled as an OpenSBI firmware payload.
+**imasu** can run the Linux kernel, bundled as an OpenSBI firmware payload.
 
-the following kernel config options are required:
+the following kernel config options are required to boot Linux in general:
 - `CONFIG_NONPORTABLE=y` needs to be set to set `CONFIG_RISCV_ISA_C=n`
-- `CONFIG_BLK_DEV_INITRD=y` as **imasu** does not (yet!) implement any emulated storage devices, the root filesystem must be baked into the image. A path to the root filesystem cpio archive should be given to `CONFIG_INITRAMFS_SOURCE`
+- `CONFIG_BLOCK=y` to make use of Block Devices like the VirtIO hard disk. If you would rather not use a disk, you must bake-in the root filesystem with your kernel. Set `CONFIG_BLK_DEV_INITRD=y`, and set `CONFIG_INITRAMFS_SOURCE` to the path of the root filesystem cpio archive.
+- `VIRTIO_MMIO=y` for VirtIO over MMIO transport, and `VIRTIO_BLK=y` to enable the VirtIO disk driver.
 - `CONFIG_TTY=y`, `CONFIG_VT=y`, `CONFIG_SERIAL_8250=y`, `CONFIG_SERIAL_8250_CONSOLE=y` for TTY and NS8250 UART support so that Linux can display to the terminal and read user input, `CONFIG_TTY_PRINTK` so that the boot process is also printed to the terminal
 
 once the kernel has been built, OpenSBI can be built to include it as a payload:
@@ -65,11 +67,8 @@ build with `make CROSS_COMPILE=<...> [...]`
 
 then run the resulting `u-boot.bin` with the emulator.
 
-as of now there is little purpose in running U-boot, as there are no boot media sources outside of what is loaded into memory at emulator boot.
-
 ## TODOs
 
-- VirtIO Disk device, so the filesystem does not need to be bundled with the kernel, to be able to run full Linux distros and boot with u-boot, to be able to run xv6, etc...
 - testing with RISCOF, document testing with riscv-tests
 - option to compile a 32-bit RV32 emulator
 - compile-time options to disable or enable parts of the ISA
