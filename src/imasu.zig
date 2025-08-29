@@ -513,8 +513,10 @@ pub fn main() !void {
     clint.hart = &hart;
     plic.hart = &hart;
     uart.ic = &plic;
-    disk.ic = &plic;
-    if (disk_file != null) disk.mem = &mem;
+    if (disk_file != null) {
+        disk.ic = &plic;
+        disk.mem = &mem;
+    }
 
     // attach devices to main memory
     mem.devices = try mmio_devices.toOwnedSlice();
