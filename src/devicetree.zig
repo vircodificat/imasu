@@ -20,6 +20,32 @@ const Value = union(enum) {
     u64s: []const u64, // array of u64s
 };
 
+// create a name for a node with a unit address
+pub fn name_unit_addr(
+    name: []const u8,
+    unit_addr: u64,
+    a: std.mem.Allocator,
+) ![]u8 {
+    // unit_addr when writen as hex can take up at most 16 bytes
+    var num_buf: [16]u8 = undefined;
+    const num = std.fmt.bufPrintIntToSlice(
+        &num_buf,
+        unit_addr,
+        16,
+        .lower,
+        .{},
+    );
+    var buf = try a.alloc(u8, name.len + 1 + num.len);
+    const string = std.fmt.bufPrint(
+        buf[0..buf.len],
+        "{s}@{s}",
+        .{ name, num },
+    ) catch unreachable;
+    std.debug.assert(num.len <= 16);
+    std.debug.assert(string.len == buf.len);
+    return string;
+}
+
 pub fn create_node(name: []const u8) DT {
     return DT{
         .name = name,
@@ -43,6 +69,16 @@ pub fn deinit_tree(node: *DT, a: Allocator) void {
     }
     node.children.deinit(a);
     node.properties.deinit(a);
+}
+
+// recursively traverse descendants of a node
+// to find a node with a given name
+pub fn find_node(node: *DT, name: []const u8) ?*DT {
+    for (node.children.items) |*child| {
+        if (std.mem.eql(u8, name, child.name)) return child;
+        if (child.find_node(name)) |c| return c;
+    }
+    return null;
 }
 
 pub inline fn add_bool_prop(
