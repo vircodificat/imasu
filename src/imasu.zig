@@ -47,14 +47,20 @@ const phys_mem_max_sz_mib: usize =
     ((std.math.maxInt(riscv.xlen) - Memory.mem_base) + 1) / (1024 * 1024) - 1;
 
 fn die(comptime format: []const u8, args: anytype) noreturn {
-    const stderr = std.io.getStdErr().writer();
+    var stderr_buf: [256]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    var stderr = &stderr_writer.interface;
     stderr.print(format ++ "\n", args) catch {};
+    stderr.flush() catch {};
     std.process.exit(1);
 }
 
 fn die_error(comptime format: []const u8, args: anytype, err: anyerror) noreturn {
-    const stderr = std.io.getStdErr().writer();
+    var stderr_buf: [256]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    var stderr = &stderr_writer.interface;
     stderr.print(format ++ ": {s}\n", args ++ .{@errorName(err)}) catch {};
+    stderr.flush() catch {};
     std.process.exit(1);
 }
 
@@ -64,14 +70,16 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(a);
     defer std.process.argsFree(a, args);
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buf: [56]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout = &stdout_writer.interface;
 
     var image_path: ?[:0]const u8 = null;
     var disk_path: ?[:0]const u8 = null;
     var mem_sz: usize = 256 * 1024 * 1024;
     var allow_ctrl_c: bool = false;
     var print_dtb: bool = false;
-    var user_cmdline = std.ArrayList(u8).init(a);
+    var user_cmdline = std.array_list.Managed(u8).init(a);
     var prepend_default_cmdline: bool = true;
 
     var idx: usize = 1;
@@ -144,7 +152,8 @@ pub fn main() !void {
 
         // -h, --help
         if (eql(u8, arg, "-h") or eql(u8, arg, "--help")) {
-            _ = stdout.write(help_text) catch {};
+            _ = try stdout.writeAll(help_text);
+            try stdout.flush();
             std.process.exit(0);
         }
     }
@@ -163,7 +172,7 @@ pub fn main() !void {
 
     // allocate memory for RAM
     const ram: []align(std.heap.page_size_min) u8 =
-        try a.alignedAlloc(u8, std.heap.page_size_min, mem_sz);
+        try a.alignedAlloc(u8, std.mem.Alignment.fromByteUnits(std.heap.page_size_min), mem_sz);
 
     // zero initialise
     @memset(ram, 0);
@@ -190,7 +199,7 @@ pub fn main() !void {
         disk_sz = @intCast(stat.size);
     }
 
-    var mmio_devices = try std.ArrayList(*Device).initCapacity(a, 8);
+    var mmio_devices = try std.array_list.Managed(*Device).initCapacity(a, 8);
 
     // standard input setup
     try terminal_make_raw(allow_ctrl_c);
@@ -206,7 +215,7 @@ pub fn main() !void {
         if (!prepend_default_cmdline) break :cmd user;
         const default = "earlycon=uart,mmio,0x10000000,9600n console=ttyS0";
         const default_with_disk = "root=/dev/vda rw";
-        var c = std.ArrayList(u8).init(a);
+        var c = std.array_list.Managed(u8).init(a);
         try c.appendSlice(default);
         if (disk_file) |_| {
             try c.append(' ');
@@ -490,7 +499,8 @@ pub fn main() !void {
     // create and emit DTB data
     const dtb_data = try dt.emit_dtb(a);
     if (print_dtb) {
-        _ = stdout.write(dtb_data) catch {};
+        _ = stdout.writeAll(dtb_data) catch {};
+        try stdout.flush();
         a.free(dtb_data);
         std.process.exit(0);
     }

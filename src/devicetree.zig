@@ -3,13 +3,13 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Buffer = std.ArrayList(u8);
+const Buffer = std.array_list.Managed(u8);
 const assert = std.debug.assert;
 
 const DT = @This();
 
 name: []const u8, // name of the node
-children: std.ArrayListUnmanaged(DT), // children nodes
+children: std.ArrayList(DT), // children nodes
 properties: std.StringArrayHashMapUnmanaged(Value),
 
 // devicetree property value types
@@ -28,19 +28,14 @@ pub fn name_unit_addr(
 ) ![]u8 {
     // unit_addr when writen as hex can take up at most 16 bytes
     var num_buf: [16]u8 = undefined;
-    const num = std.fmt.bufPrintIntToSlice(
+    const num = try std.fmt.bufPrint(
         &num_buf,
-        unit_addr,
-        16,
-        .lower,
-        .{},
+        "{x}",
+        .{ unit_addr },
     );
     var buf = try a.alloc(u8, name.len + 1 + num.len);
-    const string = std.fmt.bufPrint(
-        buf[0..buf.len],
-        "{s}@{s}",
-        .{ name, num },
-    ) catch unreachable;
+    const string = std.fmt.bufPrint(buf[0..buf.len], "{s}@{s}", .{ name, num })
+        catch unreachable;
     std.debug.assert(num.len <= 16);
     std.debug.assert(string.len == buf.len);
     return string;
@@ -49,7 +44,7 @@ pub fn name_unit_addr(
 pub fn create_node(name: []const u8) DT {
     return DT{
         .name = name,
-        .children = std.ArrayListUnmanaged(DT).empty,
+        .children = std.ArrayList(DT).empty,
         .properties = std.StringArrayHashMapUnmanaged(Value).empty,
     };
 }
@@ -233,7 +228,7 @@ inline fn emit_property(nameoff: u32, value: Value, buffer: *Buffer) !void {
 // traverse the tree and collect all the property strings present
 fn collect_property_names(node: *const DT, a: Allocator) ![][]const u8 {
     var string_set = std.StringHashMap(void).init(a);
-    var queue = std.ArrayList(*const DT).init(a);
+    var queue = std.array_list.Managed(*const DT).init(a);
     errdefer string_set.deinit();
     errdefer queue.deinit();
     defer string_set.deinit();
@@ -249,7 +244,7 @@ fn collect_property_names(node: *const DT, a: Allocator) ![][]const u8 {
         }
     }
 
-    var string_list = std.ArrayList([]const u8).init(a);
+    var string_list = std.array_list.Managed([]const u8).init(a);
     var iter = string_set.keyIterator();
     while (iter.next()) |str| {
         try string_list.append(str.*);
