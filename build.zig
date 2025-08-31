@@ -4,10 +4,12 @@ pub fn build(b: *std.Build) void {
     // executable step
     const exe = b.addExecutable(.{
         .name = "imasu64",
-        .root_source_file = b.path("src/imasu.zig"),
-        .target = b.standardTargetOptions(.{}),
-        .optimize = b.standardOptimizeOption(.{}),
-        .single_threaded = false,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/imasu.zig"),
+            .target = b.standardTargetOptions(.{}),
+            .optimize = b.standardOptimizeOption(.{}),
+            .single_threaded = false,
+        }),
     });
 
     b.installArtifact(exe);
