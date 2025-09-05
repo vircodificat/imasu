@@ -9,6 +9,7 @@ const PLIC = @import("devices/plic.zig");
 const ROM = @import("devices/rom.zig");
 const Syscon = @import("devices/syscon.zig");
 const UART = @import("devices/uart.zig");
+const System = @import("system.zig");
 const riscv = @import("riscv.zig");
 const std = @import("std");
 const eql = std.mem.eql;
@@ -200,9 +201,6 @@ pub fn main() !void {
     }
 
     var mmio_devices = try std.array_list.Managed(*Device).initCapacity(a, 8);
-
-    // standard input setup
-    try terminal_make_raw(allow_ctrl_c);
 
     // device tree root
     var dt = DT.create_node("");
@@ -449,8 +447,18 @@ pub fn main() !void {
         try dt.find_node("soc").?.add_child(dt_virtio, a);
     }
 
+    var system = System{
+        .hart = &hart,
+        .clint = &clint,
+        .uart = &uart,
+        .disk = &disk,
+        .allow_ctrl_c = allow_ctrl_c,
+    };
+
     // create Syscon
-    var syscon = Syscon{};
+    var syscon = Syscon{
+        .system = &system,
+    };
     var syscon_dev = Device{
         .kind = .{ .syscon = &syscon },
         .mmio_base = syscon_mmio_base,
@@ -534,41 +542,5 @@ pub fn main() !void {
     // set a1 register to start of dtb rom
     hart.x[11] = dtb_dev.mmio_base;
 
-    // spawn the thread that runs the timer
-    var clint_thread = try std.Thread.spawn(.{}, CLINT.task, .{&clint});
-    clint_thread.detach();
-
-    // spawn the thread that runs the UART
-    var uart_thread = try std.Thread.spawn(.{}, UART.task, .{&uart});
-    uart_thread.detach();
-
-    if (disk_file != null) {
-        // spawn the thread that runs the VirtIO disk
-        var disk_thread = try std.Thread.spawn(.{}, Disk.task, .{&disk});
-        disk_thread.detach();
-    }
-
-    // run the hart on the main thread
-    hart.task();
-}
-
-fn terminal_make_raw(allow_ctrl_c: bool) !void {
-    var termios = try std.posix.tcgetattr(0);
-    termios.iflag.IGNBRK = false;
-    termios.iflag.BRKINT = false;
-    termios.iflag.PARMRK = false;
-    termios.iflag.ISTRIP = false;
-    termios.iflag.INLCR = false;
-    termios.iflag.IGNCR = false;
-    termios.iflag.ICRNL = false;
-    termios.iflag.IXON = false;
-    termios.oflag.OPOST = false;
-    termios.lflag.ECHO = false;
-    termios.lflag.ECHONL = false;
-    termios.lflag.ICANON = false;
-    termios.lflag.IEXTEN = false;
-    termios.cflag.PARENB = false;
-    termios.cflag.CSIZE = .CS8;
-    if (allow_ctrl_c) termios.lflag.ISIG = false;
-    try std.posix.tcsetattr(0, .NOW, termios);
+    try system.run();
 }

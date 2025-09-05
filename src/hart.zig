@@ -52,7 +52,7 @@ pub fn create() Hart {
     };
 }
 
-pub fn task(hart: *Hart) void {
+pub fn task(hart: *Hart) noreturn {
     // main loop for the hart
     while (true) {
         hart.try_take_interrupt();

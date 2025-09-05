@@ -6,8 +6,10 @@
 
 const riscv = @import("../riscv.zig");
 const std = @import("std");
+const System = @import("../system.zig");
 
 const Syscon = @This();
+system: *System,
 
 // In actuality the size of the memory region is 4 bytes,
 // but OpenSBI domain memory regions must be at least 8 bytes long
@@ -20,8 +22,10 @@ pub fn mmio_reg_read(_: *Syscon, comptime T: type, reg_addr: u64) ?T {
     return 0;
 }
 
-pub fn mmio_reg_write(_: *Syscon, comptime T: type, reg_addr: u64, v: T) ?void {
+pub fn mmio_reg_write(self: *Syscon, comptime T: type, reg_addr: u64, v: T) ?void {
     if (T != u32 or reg_addr != 0) return null;
-    if (v == poweroff) std.process.exit(0); // system poweroff
+    if (v == poweroff) {
+        self.system.poweroff() catch {};
+     }
     return;
 }
